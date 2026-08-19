@@ -11,6 +11,7 @@ import json
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from .client import HiBobClient, get_client
@@ -174,13 +175,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_list_workforce_fields",
-        annotations={
-            "title": "List HiBob workforce planning fields",
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="List HiBob workforce planning fields",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_list_workforce_fields(
         object_type: Annotated[
@@ -216,13 +217,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_get_company_named_lists",
-        annotations={
-            "title": "Get HiBob company named lists",
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Get HiBob company named lists",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_get_company_named_lists(
         list_name: Annotated[
@@ -264,13 +265,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_search_positions",
-        annotations={
-            "title": "Search HiBob positions",
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Search HiBob positions",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_search_positions(
         fields: Annotated[
@@ -336,13 +337,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_search_position_openings",
-        annotations={
-            "title": "Search HiBob position openings",
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Search HiBob position openings",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_search_position_openings(
         fields: Annotated[
@@ -416,13 +417,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_search_position_budgets",
-        annotations={
-            "title": "Search HiBob position budgets",
-            "readOnlyHint": True,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Search HiBob position budgets",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_search_position_budgets(
         fields: Annotated[
@@ -486,13 +487,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_create_position",
-        annotations={
-            "title": "Create a HiBob position",
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Create a HiBob position",
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
     )
     async def hibob_create_position(
         position_fields: Annotated[
@@ -580,13 +581,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_update_position",
-        annotations={
-            "title": "Update a HiBob position",
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Update a HiBob position",
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_update_position(
         position_id: Annotated[
@@ -636,13 +637,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_cancel_position",
-        annotations={
-            "title": "Cancel a HiBob position",
-            "readOnlyHint": False,
-            "destructiveHint": True,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Cancel a HiBob position",
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_cancel_position(
         position_id: Annotated[
@@ -673,13 +674,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_create_position_opening",
-        annotations={
-            "title": "Create a HiBob position opening",
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Create a HiBob position opening",
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
     )
     async def hibob_create_position_opening(
         position_id: Annotated[
@@ -720,13 +721,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_update_position_opening",
-        annotations={
-            "title": "Update a HiBob position opening",
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Update a HiBob position opening",
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_update_position_opening(
         position_id: Annotated[
@@ -770,13 +771,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_delete_position_opening",
-        annotations={
-            "title": "Delete a HiBob position opening",
-            "readOnlyHint": False,
-            "destructiveHint": True,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Delete a HiBob position opening",
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_delete_position_opening(
         position_id: Annotated[
@@ -818,13 +819,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_create_position_budget",
-        annotations={
-            "title": "Create a HiBob position budget",
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": False,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Create a HiBob position budget",
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
     )
     async def hibob_create_position_budget(
         position_id: Annotated[
@@ -870,13 +871,13 @@ def register_workforce_planning_tools(
 
     @mcp.tool(
         name="hibob_update_position_budget",
-        annotations={
-            "title": "Update a HiBob position budget",
-            "readOnlyHint": False,
-            "destructiveHint": False,
-            "idempotentHint": True,
-            "openWorldHint": True,
-        },
+        annotations=ToolAnnotations(
+            title="Update a HiBob position budget",
+            readOnlyHint=False,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
     )
     async def hibob_update_position_budget(
         position_id: Annotated[

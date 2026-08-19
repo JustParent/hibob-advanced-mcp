@@ -151,16 +151,21 @@ Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, n
 
 ```bash
 uv venv
-uv pip install -e '.[test,lint]'
+uv pip install -e '.[test,lint,typecheck]'
 pytest
 ```
 
-Lint and formatting are enforced in CI by [ruff](https://docs.astral.sh/ruff/):
+Lint, formatting and types are enforced in CI:
 
 ```bash
 ruff check .          # add --fix to apply the automatic fixes
 ruff format .         # CI runs --check, so format before pushing
+mypy                  # non-strict; paths come from pyproject.toml
 ```
+
+Type checking is deliberately non-strict — annotations are checked where they
+exist, but untyped code is allowed. The package ships a `py.typed` marker, so
+its annotations are visible to anything that imports it.
 
 Inspect the tools interactively:
 

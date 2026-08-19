@@ -23,6 +23,7 @@ test = [
 ]
 socks = ["httpx[socks]>=0.27.0"]
 lint = ["ruff>=0.6"]
+typecheck = ["mypy>=1.11", "pytest>=8.0.0", "respx>=0.21"]
 
 [project.scripts]
 hibob-advanced-mcp = "hibob_advanced_mcp:main"
@@ -58,3 +59,12 @@ select = [
 [tool.ruff.lint.per-file-ignores]
 # Tests import fixtures from conftest by name and assert on private details.
 "tests/*" = ["E501"]
+
+[tool.mypy]
+# Deliberately non-strict: annotations are checked where they exist, but
+# untyped code is allowed, so this catches real mistakes without demanding
+# full coverage.
+python_version = "3.10"
+files = ["src", "tests"]
+warn_unused_configs = true
+warn_redundant_casts = true

@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from mcp.types import LATEST_PROTOCOL_VERSION
+from mcp.types import LATEST_PROTOCOL_VERSION, TextContent
 
 SRC = str(Path(__file__).resolve().parent.parent / "src")
 STARTUP_TIMEOUT_SECONDS = 60
@@ -54,6 +54,13 @@ async def _with_session(params: StdioServerParameters, body):
             return await body(session, init)
 
     return await asyncio.wait_for(run(), timeout=STARTUP_TIMEOUT_SECONDS)
+
+
+def _text_of(result) -> str:
+    """Pull the text out of a tool result, which is a union of content types."""
+    return "".join(
+        block.text for block in result.content if isinstance(block, TextContent)
+    )
 
 
 async def test_server_starts_and_completes_handshake() -> None:
@@ -94,7 +101,7 @@ async def test_missing_credentials_reported_without_crashing() -> None:
         result = await session.call_tool(
             "hibob_search_positions", {"fields": ["/position/id"]}
         )
-        return result.content[0].text
+        return _text_of(result)
 
     text = await _with_session(
         _params(HIBOB_SERVICE_USER_ID="", HIBOB_SERVICE_USER_TOKEN=""), body
@@ -111,7 +118,7 @@ async def test_server_still_works_while_warning_on_stderr() -> None:
         result = await session.call_tool(
             "hibob_search_positions", {"fields": ["/position/id"]}
         )
-        return len(tools.tools), result.content[0].text
+        return len(tools.tools), _text_of(result)
 
     tool_count, text = await _with_session(
         _params(
@@ -151,9 +158,14 @@ async def test_stdout_carries_only_json_rpc() -> None:
         ),
     )
 
+    # Created with PIPE for all three streams, so none of them are None.
+    stdin, stdout = process.stdin, process.stdout
+    assert stdin is not None
+    assert stdout is not None
+
     async def send(message: dict) -> None:
-        process.stdin.write((json.dumps(message) + "\n").encode())
-        await process.stdin.drain()
+        stdin.write((json.dumps(message) + "\n").encode())
+        await stdin.drain()
 
     try:
         await send(
@@ -174,7 +186,7 @@ async def test_stdout_carries_only_json_rpc() -> None:
         lines: list[bytes] = []
         while True:
             line = await asyncio.wait_for(
-                process.stdout.readline(), timeout=STARTUP_TIMEOUT_SECONDS
+                stdout.readline(), timeout=STARTUP_TIMEOUT_SECONDS
             )
             assert line, "server closed stdout before answering tools/list"
             lines.append(line)
@@ -182,7 +194,7 @@ async def test_stdout_carries_only_json_rpc() -> None:
             if b'"id":2' in line.replace(b" ", b""):
                 break
     finally:
-        process.stdin.close()
+        stdin.close()
         process.terminate()
         stderr = (await process.communicate())[1]
 
@@ -208,7 +220,7 @@ async def test_validation_error_returned_over_stdio_without_network() -> None:
             "hibob_create_position",
             {"position_fields": {"/position/fte": 100}, "opening_fields": {}},
         )
-        return result.content[0].text
+        return _text_of(result)
 
     text = await _with_session(
         _params(
