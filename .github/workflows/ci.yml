@@ -17,10 +17,9 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: ${{ matrix.python-version }}
+      # setup-uv creates and activates .venv, so install into that.
       - name: Install
-        run: |
-          uv venv --python ${{ matrix.python-version }}
-          uv pip install -e '.[test]'
+        run: uv pip install -e '.[test]'
       - name: Test
         run: uv run --no-sync pytest -q
 
