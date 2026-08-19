@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install
+        run: uv pip install --system -e '.[test]'
+      - name: Test
+        run: pytest -q
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Build distributions
+        run: uv build
+      # Exercises the same uvx entry point used to run this server in production.
+      - name: Run from source checkout
+        run: uvx --from . hibob-advanced-mcp --test
+      - name: Run from built wheel
+        run: uvx --from "$(ls dist/*.whl)" hibob-advanced-mcp --test
