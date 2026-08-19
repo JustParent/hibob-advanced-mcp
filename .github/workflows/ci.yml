@@ -18,9 +18,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install
-        run: uv pip install --system -e '.[test]'
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install -e '.[test]'
       - name: Test
-        run: pytest -q
+        run: uv run --no-sync pytest -q
 
   build:
     runs-on: ubuntu-latest
