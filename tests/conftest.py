@@ -12,7 +12,6 @@ from mcp.types import TextContent
 
 from hibob_advanced_mcp import client as client_module
 from hibob_advanced_mcp.client import HiBobClient
-from hibob_advanced_mcp.workforce_planning import register_workforce_planning_tools
 from hibob_advanced_mcp.config import (
     ENV_API_HOST,
     ENV_READ_ONLY,
@@ -20,6 +19,7 @@ from hibob_advanced_mcp.config import (
     ENV_SERVICE_USER_TOKEN,
     load_settings,
 )
+from hibob_advanced_mcp.workforce_planning import register_workforce_planning_tools
 
 API_BASE = "https://api.hibob.com/v1"
 TEST_USER_ID = "svc-user-1"
@@ -87,6 +87,4 @@ async def call_tool(mcp: FastMCP, name: str, arguments: dict | None = None) -> s
     """
     result = await mcp.call_tool(name, arguments or {})
     content = result[0] if isinstance(result, tuple) else result
-    return "".join(
-        block.text for block in content if isinstance(block, TextContent)
-    )
+    return "".join(block.text for block in content if isinstance(block, TextContent))

@@ -80,8 +80,7 @@ class SearchFilter(BaseModel):
     field_id: str = Field(
         ...,
         description=(
-            "Field to filter on, e.g. '/position/status' or "
-            "'/positionOpening/status'."
+            "Field to filter on, e.g. '/position/status' or '/positionOpening/status'."
         ),
         min_length=1,
     )
@@ -372,8 +371,7 @@ def register_workforce_planning_tools(
             str | None,
             Field(
                 description=(
-                    "Pass the 'next_cursor' from a previous call to get the "
-                    "next page."
+                    "Pass the 'next_cursor' from a previous call to get the next page."
                 )
             ),
         ] = None,
@@ -713,9 +711,7 @@ def register_workforce_planning_tools(
         Rate limit: 10 requests/minute.
         """
         try:
-            validate_required_keys(
-                OBJECT_TYPE_OPENING, fields, REQUIRED_OPENING_FIELDS
-            )
+            validate_required_keys(OBJECT_TYPE_OPENING, fields, REQUIRED_OPENING_FIELDS)
             body = build_items_envelope(OBJECT_TYPE_OPENING, fields)
             path = f"{POSITIONS_PATH}/{position_id}/position-openings"
             return _dump(await client().post(path, body))
@@ -767,9 +763,7 @@ def register_workforce_planning_tools(
             if not fields:
                 raise ValueError("Provide at least one field to update.")
             body = build_items_envelope(OBJECT_TYPE_OPENING, fields)
-            path = (
-                f"{POSITIONS_PATH}/{position_id}/position-openings/{opening_id}"
-            )
+            path = f"{POSITIONS_PATH}/{position_id}/position-openings/{opening_id}"
             return _dump(await client().patch(path, body) or {"status": "updated"})
         except Exception as exc:
             return format_exception(exc)
@@ -809,9 +803,7 @@ def register_workforce_planning_tools(
         Rate limit: 10 requests/minute.
         """
         try:
-            path = (
-                f"{POSITIONS_PATH}/{position_id}/position-openings/{opening_id}"
-            )
+            path = f"{POSITIONS_PATH}/{position_id}/position-openings/{opening_id}"
             result = await client().delete(path)
             return _dump(
                 result

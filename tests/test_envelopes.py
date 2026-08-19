@@ -122,9 +122,7 @@ def test_envelope_without_nested_objects() -> None:
         "items": [
             {
                 "objectType": "positionOpening",
-                "fields": {
-                    "/positionOpening/recruitmentStatus": {"value": "onHold"}
-                },
+                "fields": {"/positionOpening/recruitmentStatus": {"value": "onHold"}},
             }
         ]
     }

@@ -46,10 +46,12 @@ def _params(**env_overrides: str) -> StdioServerParameters:
 
 async def _with_session(params: StdioServerParameters, body):
     async def run():
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                init = await session.initialize()
-                return await body(session, init)
+        async with (
+            stdio_client(params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            init = await session.initialize()
+            return await body(session, init)
 
     return await asyncio.wait_for(run(), timeout=STARTUP_TIMEOUT_SECONDS)
 
@@ -78,7 +80,9 @@ async def test_read_only_mode_hides_write_tools_over_stdio() -> None:
     names = await _with_session(_params(HIBOB_READ_ONLY="true"), body)
     assert len(names) == 5
     assert not any(
-        name.startswith(("hibob_create", "hibob_update", "hibob_cancel", "hibob_delete"))
+        name.startswith(
+            ("hibob_create", "hibob_update", "hibob_cancel", "hibob_delete")
+        )
         for name in names
     )
 
@@ -227,5 +231,7 @@ def test_console_script_entry_point_is_declared() -> None:
     except Exception:  # pragma: no cover - only when running from a bare checkout
         pytest.skip("package is not installed")
 
-    console = {ep.name: ep.value for ep in entry_points if ep.group == "console_scripts"}
+    console = {
+        ep.name: ep.value for ep in entry_points if ep.group == "console_scripts"
+    }
     assert console.get("hibob-advanced-mcp") == "hibob_advanced_mcp:main"

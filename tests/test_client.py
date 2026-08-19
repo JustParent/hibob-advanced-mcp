@@ -8,6 +8,7 @@ import httpx
 import pytest
 import respx
 
+from conftest import TEST_TOKEN, TEST_USER_ID
 from hibob_advanced_mcp.client import HiBobClient
 from hibob_advanced_mcp.config import (
     ENV_API_HOST,
@@ -15,8 +16,6 @@ from hibob_advanced_mcp.config import (
     load_settings,
 )
 from hibob_advanced_mcp.errors import HiBobApiError, HiBobConfigError
-
-from conftest import TEST_TOKEN, TEST_USER_ID
 
 
 async def test_uses_basic_auth_with_service_user_credentials(

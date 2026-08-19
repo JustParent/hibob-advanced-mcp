@@ -6,8 +6,9 @@ import json
 
 import httpx
 import respx
-from conftest import call_tool
 from mcp.server.fastmcp import FastMCP
+
+from conftest import call_tool
 
 POSITION_FIELDS = {
     "/position/effectiveDate": "2026-09-01",
@@ -181,9 +182,7 @@ async def test_cancel_position_sends_bodyless_patch(
         return_value=httpx.Response(204)
     )
 
-    result = await call_tool(
-        mcp_server, "hibob_cancel_position", {"position_id": "77"}
-    )
+    result = await call_tool(mcp_server, "hibob_cancel_position", {"position_id": "77"})
 
     assert not route.calls.last.request.content
     assert json.loads(result) == {"status": "cancelled", "positionId": "77"}
@@ -198,9 +197,7 @@ async def test_cancel_position_surfaces_filled_position_error(
         )
     )
 
-    result = await call_tool(
-        mcp_server, "hibob_cancel_position", {"position_id": "77"}
-    )
+    result = await call_tool(mcp_server, "hibob_cancel_position", {"position_id": "77"})
 
     assert result.startswith("Error:")
     assert "Position is filled" in result
@@ -248,9 +245,9 @@ async def test_create_opening_requires_expected_start_date(
 async def test_update_opening_targets_nested_url(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
-    route = mock_api.patch(
-        "/workforce-planning/positions/5/position-openings/6"
-    ).mock(return_value=httpx.Response(200, json={"ok": True}))
+    route = mock_api.patch("/workforce-planning/positions/5/position-openings/6").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
 
     await call_tool(
         mcp_server,
@@ -268,9 +265,9 @@ async def test_update_opening_targets_nested_url(
 async def test_delete_opening_targets_nested_url(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
-    route = mock_api.delete(
-        "/workforce-planning/positions/5/position-openings/6"
-    ).mock(return_value=httpx.Response(204))
+    route = mock_api.delete("/workforce-planning/positions/5/position-openings/6").mock(
+        return_value=httpx.Response(204)
+    )
 
     result = await call_tool(
         mcp_server,
@@ -330,9 +327,9 @@ async def test_create_budget_posts_envelope(
 async def test_update_budget_targets_nested_url(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
-    route = mock_api.patch(
-        "/workforce-planning/positions/5/position-budget/8"
-    ).mock(return_value=httpx.Response(204))
+    route = mock_api.patch("/workforce-planning/positions/5/position-budget/8").mock(
+        return_value=httpx.Response(204)
+    )
 
     result = await call_tool(
         mcp_server,

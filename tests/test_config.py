@@ -45,17 +45,13 @@ def test_api_base_uses_sandbox_when_configured() -> None:
 
 
 @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " True "])
-def test_read_only_truthy_values(
-    monkeypatch: pytest.MonkeyPatch, value: str
-) -> None:
+def test_read_only_truthy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
     monkeypatch.setenv(ENV_READ_ONLY, value)
     assert read_only_enabled() is True
 
 
 @pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "maybe"])
-def test_read_only_falsy_values(
-    monkeypatch: pytest.MonkeyPatch, value: str
-) -> None:
+def test_read_only_falsy_values(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
     monkeypatch.setenv(ENV_READ_ONLY, value)
     assert read_only_enabled() is False
 

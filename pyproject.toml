@@ -22,6 +22,7 @@ test = [
     "respx>=0.21",
 ]
 socks = ["httpx[socks]>=0.27.0"]
+lint = ["ruff>=0.6"]
 
 [project.scripts]
 hibob-advanced-mcp = "hibob_advanced_mcp:main"
@@ -35,3 +36,25 @@ testpaths = ["tests"]
 asyncio_mode = "auto"
 # -ra surfaces skips, so a silently skipped suite is visible in CI output.
 addopts = "-ra --strict-markers --strict-config"
+
+[tool.ruff]
+# Match the package's minimum supported version, so no newer syntax slips in.
+target-version = "py310"
+line-length = 88
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "W",    # pycodestyle warnings
+    "I",    # import sorting
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "SIM",  # simplification
+    "RUF",  # ruff-specific rules
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests import fixtures from conftest by name and assert on private details.
+"tests/*" = ["E501"]

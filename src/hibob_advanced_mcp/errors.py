@@ -119,9 +119,7 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
     if detail and status not in (400,) and detail not in message:
         message = f"{message} HiBob said: {detail}"
 
-    raise HiBobApiError(
-        message, status_code=status, hibob_key=key, hibob_error=detail
-    )
+    raise HiBobApiError(message, status_code=status, hibob_key=key, hibob_error=detail)
 
 
 def format_exception(exc: Exception) -> str:

@@ -57,9 +57,12 @@ def normalize_field_key(object_type: str, key: str) -> str:
 
 def _wrap_value(value: Any) -> dict[str, Any]:
     """Wrap a raw value as ``{"value": ...}``, passing through pre-wrapped ones."""
-    if isinstance(value, dict) and set(value.keys()) <= {"value", "humanReadable"}:
-        if "value" in value:
-            return {"value": value["value"]}
+    if (
+        isinstance(value, dict)
+        and set(value.keys()) <= {"value", "humanReadable"}
+        and "value" in value
+    ):
+        return {"value": value["value"]}
     return {"value": value}
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
 READ_TOOLS = {
     "hibob_list_workforce_fields",
@@ -41,7 +42,8 @@ async def test_read_only_server_registers_only_read_tools(server_factory) -> Non
 
 async def test_read_only_server_cannot_be_asked_to_write(server_factory) -> None:
     mcp = server_factory(read_only=True)
-    with pytest.raises(Exception):
+    # Must fail because the tool is absent, not merely because the call errored.
+    with pytest.raises(ToolError, match="Unknown tool"):
         await mcp.call_tool("hibob_create_position", {})
 
 
@@ -58,9 +60,7 @@ async def test_only_cancel_and_delete_are_annotated_destructive(
     for tool in await server_factory().list_tools():
         if tool.name in WRITE_TOOLS:
             assert tool.annotations.readOnlyHint is False
-            assert tool.annotations.destructiveHint is (
-                tool.name in DESTRUCTIVE_TOOLS
-            )
+            assert tool.annotations.destructiveHint is (tool.name in DESTRUCTIVE_TOOLS)
 
 
 async def test_every_tool_has_a_title_and_description(server_factory) -> None:

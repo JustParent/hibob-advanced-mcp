@@ -151,8 +151,15 @@ Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, n
 
 ```bash
 uv venv
-uv pip install -e '.[test]'
+uv pip install -e '.[test,lint]'
 pytest
+```
+
+Lint and formatting are enforced in CI by [ruff](https://docs.astral.sh/ruff/):
+
+```bash
+ruff check .          # add --fix to apply the automatic fixes
+ruff format .         # CI runs --check, so format before pushing
 ```
 
 Inspect the tools interactively:

@@ -16,7 +16,9 @@ from hibob_advanced_mcp.errors import (
 def _response(
     status: int, json: dict | None = None, headers: dict | None = None, text: str = ""
 ) -> httpx.Response:
-    request = httpx.Request("GET", "https://api.hibob.com/v1/workforce-planning/positions/42")
+    request = httpx.Request(
+        "GET", "https://api.hibob.com/v1/workforce-planning/positions/42"
+    )
     if json is not None:
         return httpx.Response(status, json=json, headers=headers, request=request)
     return httpx.Response(status, text=text, headers=headers, request=request)

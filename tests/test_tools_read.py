@@ -6,8 +6,9 @@ import json
 
 import httpx
 import respx
-from conftest import call_tool
 from mcp.server.fastmcp import FastMCP
+
+from conftest import call_tool
 
 
 async def test_metadata_routes_per_object_type(
@@ -24,7 +25,9 @@ async def test_metadata_routes_per_object_type(
         return_value=httpx.Response(200, json={"fields": ["c"]})
     )
 
-    await call_tool(mcp_server, "hibob_list_workforce_fields", {"object_type": "position"})
+    await call_tool(
+        mcp_server, "hibob_list_workforce_fields", {"object_type": "position"}
+    )
     await call_tool(
         mcp_server, "hibob_list_workforce_fields", {"object_type": "positionOpening"}
     )
