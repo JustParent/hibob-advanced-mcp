@@ -33,3 +33,5 @@ packages = ["src/hibob_advanced_mcp"]
 pythonpath = ["src"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# -ra surfaces skips, so a silently skipped suite is visible in CI output.
+addopts = "-ra --strict-markers --strict-config"

@@ -1,0 +1,231 @@
+"""End-to-end tests over the real stdio transport.
+
+These spawn the server as a subprocess and speak MCP to it, covering the path
+the server is actually deployed on. The unit tests exercise tool logic in
+process, which cannot catch a server that fails to start, an entry point that
+does not resolve, or anything written to stdout corrupting the JSON-RPC stream.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+from mcp.types import LATEST_PROTOCOL_VERSION
+
+SRC = str(Path(__file__).resolve().parent.parent / "src")
+STARTUP_TIMEOUT_SECONDS = 60
+
+# An unroutable address, so a tool call exercises the failure path without
+# reaching HiBob. Port 9 (discard) refuses or drops connections immediately.
+UNROUTABLE_HOST = "127.0.0.1:9"
+
+
+def _server_env(**overrides: str) -> dict[str, str]:
+    env = dict(os.environ)
+    # Let the subprocess import the package whether or not it is installed.
+    env["PYTHONPATH"] = SRC + os.pathsep + env.get("PYTHONPATH", "")
+    env.pop("HIBOB_READ_ONLY", None)
+    env.update(overrides)
+    return env
+
+
+def _params(**env_overrides: str) -> StdioServerParameters:
+    return StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "hibob_advanced_mcp"],
+        env=_server_env(**env_overrides),
+    )
+
+
+async def _with_session(params: StdioServerParameters, body):
+    async def run():
+        async with stdio_client(params) as (read, write):
+            async with ClientSession(read, write) as session:
+                init = await session.initialize()
+                return await body(session, init)
+
+    return await asyncio.wait_for(run(), timeout=STARTUP_TIMEOUT_SECONDS)
+
+
+async def test_server_starts_and_completes_handshake() -> None:
+    async def body(session: ClientSession, init):
+        return init.serverInfo.name
+
+    assert await _with_session(_params(), body) == "hibob_advanced_mcp"
+
+
+async def test_server_lists_every_tool_over_stdio() -> None:
+    async def body(session: ClientSession, _init):
+        return {tool.name for tool in (await session.list_tools()).tools}
+
+    names = await _with_session(_params(), body)
+    assert len(names) == 13
+    assert "hibob_search_positions" in names
+    assert "hibob_create_position" in names
+
+
+async def test_read_only_mode_hides_write_tools_over_stdio() -> None:
+    async def body(session: ClientSession, _init):
+        return {tool.name for tool in (await session.list_tools()).tools}
+
+    names = await _with_session(_params(HIBOB_READ_ONLY="true"), body)
+    assert len(names) == 5
+    assert not any(
+        name.startswith(("hibob_create", "hibob_update", "hibob_cancel", "hibob_delete"))
+        for name in names
+    )
+
+
+async def test_missing_credentials_reported_without_crashing() -> None:
+    """A misconfigured server must still serve, and say what is missing."""
+
+    async def body(session: ClientSession, _init):
+        result = await session.call_tool(
+            "hibob_search_positions", {"fields": ["/position/id"]}
+        )
+        return result.content[0].text
+
+    text = await _with_session(
+        _params(HIBOB_SERVICE_USER_ID="", HIBOB_SERVICE_USER_TOKEN=""), body
+    )
+    assert text.startswith("Error:")
+    assert "HIBOB_SERVICE_USER_ID" in text
+
+
+async def test_server_still_works_while_warning_on_stderr() -> None:
+    """A startup warning must not stop the server serving requests."""
+
+    async def body(session: ClientSession, _init):
+        tools = await session.list_tools()
+        result = await session.call_tool(
+            "hibob_search_positions", {"fields": ["/position/id"]}
+        )
+        return len(tools.tools), result.content[0].text
+
+    tool_count, text = await _with_session(
+        _params(
+            HIBOB_SERVICE_USER_ID="fake-id",
+            HIBOB_SERVICE_USER_TOKEN="fake-token",
+            HIBOB_API_HOST=UNROUTABLE_HOST,
+        ),
+        body,
+    )
+
+    assert tool_count == 13
+    # The call fails because the host is unroutable, not because of bad framing.
+    assert text.startswith("Error:")
+
+
+async def test_stdout_carries_only_json_rpc() -> None:
+    """Every byte on stdout must be JSON-RPC; diagnostics belong on stderr.
+
+    The SDK client tolerates junk lines, so this drives the protocol by hand
+    and inspects the raw stream. Without it, a stray print would go unnoticed
+    here and corrupt the transport for stricter clients.
+
+    The environment used here makes the server as talkative as possible: it
+    warns about the non-HiBob host and logs through the MCP library.
+    """
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "hibob_advanced_mcp",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=_server_env(
+            HIBOB_SERVICE_USER_ID="fake-id",
+            HIBOB_SERVICE_USER_TOKEN="fake-token",
+            HIBOB_API_HOST=UNROUTABLE_HOST,
+        ),
+    )
+
+    async def send(message: dict) -> None:
+        process.stdin.write((json.dumps(message) + "\n").encode())
+        await process.stdin.drain()
+
+    try:
+        await send(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": LATEST_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1"},
+                },
+            }
+        )
+        await send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        await send({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+
+        lines: list[bytes] = []
+        while True:
+            line = await asyncio.wait_for(
+                process.stdout.readline(), timeout=STARTUP_TIMEOUT_SECONDS
+            )
+            assert line, "server closed stdout before answering tools/list"
+            lines.append(line)
+            # Stop once the tools/list reply arrives.
+            if b'"id":2' in line.replace(b" ", b""):
+                break
+    finally:
+        process.stdin.close()
+        process.terminate()
+        stderr = (await process.communicate())[1]
+
+    for line in lines:
+        text = line.decode().strip()
+        if not text:
+            continue
+        try:
+            message = json.loads(text)
+        except json.JSONDecodeError:  # pragma: no cover - only on regression
+            pytest.fail(f"non-JSON data written to stdout: {text!r}")
+        assert message.get("jsonrpc") == "2.0", f"not a JSON-RPC message: {text!r}"
+
+    # The diagnostics really did happen, just on the correct stream.
+    assert b"not a *.hibob.com host" in stderr
+
+
+async def test_validation_error_returned_over_stdio_without_network() -> None:
+    """Pre-flight validation must surface as a normal tool result."""
+
+    async def body(session: ClientSession, _init):
+        result = await session.call_tool(
+            "hibob_create_position",
+            {"position_fields": {"/position/fte": 100}, "opening_fields": {}},
+        )
+        return result.content[0].text
+
+    text = await _with_session(
+        _params(
+            HIBOB_SERVICE_USER_ID="fake-id",
+            HIBOB_SERVICE_USER_TOKEN="fake-token",
+            HIBOB_API_HOST=UNROUTABLE_HOST,
+        ),
+        body,
+    )
+    assert text.startswith("Error:")
+    assert "/position/effectiveDate" in text
+
+
+def test_console_script_entry_point_is_declared() -> None:
+    """The sandbox runs `uvx ... hibob-advanced-mcp`, so this must resolve."""
+    from importlib.metadata import distribution
+
+    try:
+        entry_points = distribution("hibob-advanced-mcp").entry_points
+    except Exception:  # pragma: no cover - only when running from a bare checkout
+        pytest.skip("package is not installed")
+
+    console = {ep.name: ep.value for ep in entry_points if ep.group == "console_scripts"}
+    assert console.get("hibob-advanced-mcp") == "hibob_advanced_mcp:main"
