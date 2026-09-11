@@ -56,6 +56,22 @@ async def test_named_lists_fetches_all_or_one(
     assert all_lists.called and one_list.called
 
 
+async def test_named_lists_can_include_archived_items(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.get(
+        "/company/named-lists/site", params__contains={"includeArchived": "true"}
+    ).mock(return_value=httpx.Response(200, json={"name": "site", "items": []}))
+
+    await call_tool(
+        mcp_server,
+        "hibob_get_company_named_lists",
+        {"list_name": "site", "include_archived": True},
+    )
+
+    assert route.called
+
+
 async def test_position_search_builds_expected_body(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:

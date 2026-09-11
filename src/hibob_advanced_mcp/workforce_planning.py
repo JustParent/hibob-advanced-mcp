@@ -91,9 +91,10 @@ DEFAULT_OPENING_FIELDS = (
 
 # HiBob's opening search cannot filter by position, so openings are fetched
 # in full and joined on positionId here. Rather than rely on HiBob accepting
-# an empty filter list, the scan sends a clause every opening satisfies: an
-# ID HiBob never assigns, so no real opening is excluded.
-IMPOSSIBLE_OPENING_ID = "0"
+# an empty filter list, the scan sends a clause every opening satisfies. This
+# is the value verified against HiBob's sandbox; an opening whose ID happened
+# to equal it would be left out.
+MATCH_ALL_SENTINEL_OPENING_ID = "1"
 OPENING_SCAN_PAGE_SIZE = 100
 # Bounds a scan at 10,000 openings, so a paging fault cannot loop forever.
 MAX_OPENING_SCAN_PAGES = 100
@@ -145,7 +146,9 @@ class SearchFilter(BaseModel):
 
 
 MATCH_ALL_OPENINGS_FILTER = SearchFilter(
-    field_id=OPENING_ID_FIELD, operator="notEqual", values=[IMPOSSIBLE_OPENING_ID]
+    field_id=OPENING_ID_FIELD,
+    operator="notEqual",
+    values=[MATCH_ALL_SENTINEL_OPENING_ID],
 )
 
 
@@ -403,7 +406,8 @@ def register_workforce_planning_tools(
         drop-down options and the IDs to submit. Fields that are not backed
         by a list come with their documented allowed values, and every field
         says whether it is required. Fields HiBob sets itself are listed
-        separately so they are not mistaken for inputs.
+        separately so they are not mistaken for inputs. A list longer than
+        100 items is truncated, and the field then says how to fetch the rest.
 
         Use this before hibob_create_position, hibob_create_position_opening
         or hibob_create_position_budget. It replaces a chain of
@@ -482,6 +486,15 @@ def register_workforce_planning_tools(
                 )
             ),
         ] = None,
+        include_archived: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Also return archived items, which HiBob will not accept in "
+                    "new records."
+                )
+            ),
+        ] = False,
     ) -> str:
         """Look up the allowed values of HiBob's named lists.
 
@@ -492,6 +505,7 @@ def register_workforce_planning_tools(
 
         Args:
             list_name: A single list to fetch, or None for all lists.
+            include_archived: Include archived items.
 
         Returns:
             str: JSON mapping list names to their items, each with an ID and a
@@ -501,11 +515,15 @@ def register_workforce_planning_tools(
             - "Which departments exist?" -> list_name='department'
             - Use before hibob_create_position to turn "Engineering" into its
               list item ID.
+            - Use when hibob_get_workforce_form reports a field's options as
+              truncated, to fetch that list in full.
         """
         try:
             path = NAMED_LISTS_PATH
             if list_name:
                 path = f"{NAMED_LISTS_PATH}/{list_name.strip()}"
+            if include_archived:
+                path = f"{path}?includeArchived=true"
             return _dump(await client().get(path))
         except Exception as exc:
             return format_exception(exc)

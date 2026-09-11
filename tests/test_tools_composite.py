@@ -17,7 +17,7 @@ OPENING_META = "/positions/position-openings/metadata"
 BUDGET_META = "/positions/position-budget/metadata"
 NAMED_LISTS = "/company/named-lists"
 
-MATCH_ALL = {"fieldId": "/positionOpening/id", "operator": "notEqual", "values": ["0"]}
+MATCH_ALL = {"fieldId": "/positionOpening/id", "operator": "notEqual", "values": ["1"]}
 
 
 def _opening(
