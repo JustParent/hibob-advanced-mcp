@@ -480,9 +480,8 @@ async def test_budget_search_accepts_hibobs_full_page_size(
 ) -> None:
     """HiBob allows up to 1000 budgets per page; the tool must not cap lower.
 
-    The budget search is the only paginated way to reach cost data, and the
-    whole sandbox is 808 budgets, so a 1000 page fetches every one of them in
-    a single request.
+    The budget search is the only paginated way to reach cost data, and a
+    1000 page fetches every budget most companies have in a single request.
     """
     route = mock_api.post("/positions/position-budget/search").mock(
         return_value=httpx.Response(200, json={"values": []})
