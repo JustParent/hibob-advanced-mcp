@@ -458,3 +458,28 @@ def test_subtree_for_returns_a_matching_top_level_branch_or_the_whole_tree() -> 
 
     assert subtree_for(tree, "data") == data["children"]
     assert subtree_for(tree, "Nowhere") is None
+
+
+def test_rank_matches_ignores_filler_words_in_the_query() -> None:
+    from hibob_advanced_mcp.forms import rank_matches
+
+    leaves = [
+        {"id": 1, "name": "Manager, Customer Success · Madrid - Office"},
+        {"id": 2, "name": "Manager, Customer Success · Copenhagen - Office"},
+    ]
+
+    assert rank_matches(leaves, "manager of customer success in madrid") == [leaves[0]]
+    # A query made only of filler words still matches nothing.
+    assert rank_matches(leaves, "in the") == []
+
+
+def test_rank_matches_can_insist_on_every_word() -> None:
+    from hibob_advanced_mcp.forms import rank_matches
+
+    leaves = [{"id": 1, "name": "Senior Data Scientist · Berlin"}]
+
+    assert rank_matches(leaves, "senior data scientist stockholm") == leaves
+    assert (
+        rank_matches(leaves, "senior data scientist stockholm", require_all=True) == []
+    )
+    assert rank_matches(leaves, "data scientist", require_all=True) == leaves
