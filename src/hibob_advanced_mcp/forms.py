@@ -138,12 +138,18 @@ DOCUMENTED_VALUES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Options per list field before the form points at the full list instead;
+# job catalogues in particular can run to thousands of items.
+MAX_OPTIONS_PER_LIST = 100
+
 # Guidance that applies to every form, phrased for the caller filling it in.
 FORM_INSTRUCTIONS: tuple[str, ...] = (
     "Fill in every field with required=true; other fields may be omitted.",
     "For a field with 'options', submit the chosen option's 'id' (not its "
     "name). For a field with 'allowed_values', submit one of those strings "
     "exactly as written.",
+    "'options' lists every valid item unless the field says "
+    "'options_truncated'; then follow its 'options_note' to fetch the rest.",
     "Dates are ISO 8601 strings (YYYY-MM-DD). 'fte' is a percentage, so 100 "
     "means full time.",
     "Fields listed under 'read_only_fields' are set by HiBob and must not be sent.",
@@ -225,19 +231,42 @@ def lookup_named_list(index: dict[str, list[Any]], list_id: str) -> list[Any] | 
     return None
 
 
-def shape_list_items(items: Any) -> list[dict[str, Any]]:
+def count_list_items(items: Any) -> int:
+    """Count every item in a list, nested children included."""
+    if not isinstance(items, list):
+        return 0
+    total = 0
+    for item in items:
+        if isinstance(item, dict):
+            total += 1 + count_list_items(item.get("children"))
+    return total
+
+
+def shape_list_items(items: Any, limit: int | None = None) -> list[dict[str, Any]]:
     """Reduce HiBob list items to what a drop-down needs.
 
     Keeps the ID (what gets submitted) and display name, adds ``value`` only
     when it differs from the name, ``archived`` only when true, and nested
-    ``children`` for hierarchy lists.
+    ``children`` for hierarchy lists. With ``limit``, at most that many items
+    are kept, children included, so a huge list cannot swamp a form.
     """
+    return _shape_list_items(items, [limit])
+
+
+def _shape_list_items(items: Any, budget: list[int | None]) -> list[dict[str, Any]]:
+    """Shape ``items``, spending one unit of ``budget`` (shared across the
+    recursion) per item kept."""
     shaped: list[dict[str, Any]] = []
     if not isinstance(items, list):
         return shaped
     for item in items:
         if not isinstance(item, dict):
             continue
+        remaining = budget[0]
+        if remaining is not None:
+            if remaining <= 0:
+                break
+            budget[0] = remaining - 1
         name = item.get("name")
         value = item.get("value")
         option: dict[str, Any] = {
@@ -248,7 +277,7 @@ def shape_list_items(items: Any) -> list[dict[str, Any]]:
             option["value"] = value
         if item.get("archived"):
             option["archived"] = True
-        children = shape_list_items(item.get("children"))
+        children = _shape_list_items(item.get("children"), budget)
         if children:
             option["children"] = children
         shaped.append(option)
@@ -330,7 +359,18 @@ def build_form_section(
             if items is None:
                 unresolved.add(list_id)
             else:
-                entry["options"] = shape_list_items(items)
+                total = count_list_items(items)
+                entry["options"] = shape_list_items(items, limit=MAX_OPTIONS_PER_LIST)
+                if total > MAX_OPTIONS_PER_LIST:
+                    entry["options_truncated"] = True
+                    entry["options_shown"] = MAX_OPTIONS_PER_LIST
+                    entry["options_total"] = total
+                    entry["options_note"] = (
+                        f"Showing the first {MAX_OPTIONS_PER_LIST} of {total} "
+                        "items. Call hibob_get_company_named_lists with "
+                        f"list_name='{list_id}' for the full list before offering "
+                        "a choice that is not shown here."
+                    )
         if "options" not in entry and field_id in DOCUMENTED_VALUES:
             entry["allowed_values"] = list(DOCUMENTED_VALUES[field_id])
         fields.append(entry)

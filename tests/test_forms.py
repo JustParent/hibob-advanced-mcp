@@ -11,11 +11,13 @@ from hibob_advanced_mcp.envelopes import (
 )
 from hibob_advanced_mcp.forms import (
     DOCUMENTED_VALUES,
+    MAX_OPTIONS_PER_LIST,
     READ_ONLY_FIELDS,
     REQUIRED_FIELDS,
     WRITABLE_FIELDS,
     build_form_section,
     collect_list_ids,
+    count_list_items,
     field_id_of,
     index_named_lists,
     lookup_named_list,
@@ -158,6 +160,39 @@ def test_shape_list_items_keeps_only_what_a_drop_down_needs() -> None:
     ]
 
 
+def test_count_list_items_includes_nested_children() -> None:
+    items = [
+        {"id": 1, "children": [{"id": 2}, {"id": 3, "children": [{"id": 4}]}]},
+        {"id": 5},
+        "junk",
+    ]
+    assert count_list_items(items) == 5
+    assert count_list_items(None) == 0
+
+
+def test_shape_list_items_limit_counts_nested_children() -> None:
+    items = [
+        {
+            "id": "a",
+            "name": "A",
+            "children": [{"id": f"a{i}", "name": f"A{i}"} for i in range(3)],
+        },
+        {
+            "id": "b",
+            "name": "B",
+            "children": [{"id": f"b{i}", "name": f"B{i}"} for i in range(3)],
+        },
+    ]
+
+    shaped = shape_list_items(items, limit=6)
+
+    assert [option["id"] for option in shaped] == ["a", "b"]
+    assert len(shaped[0]["children"]) == 3
+    assert [option["id"] for option in shaped[1]["children"]] == ["b0"]
+    # A limit no smaller than the list changes nothing.
+    assert shape_list_items(items, limit=8) == shape_list_items(items)
+
+
 def test_collect_list_ids_gathers_across_payloads() -> None:
     assert collect_list_ids(
         POSITION_METADATA, [_field("/x/y", list_id="currency")]
@@ -238,6 +273,40 @@ def test_section_uses_documented_values_only_without_a_named_list() -> None:
         {"id": "perm", "name": "Permanent"}
     ]
     assert "allowed_values" not in fields["/position/employmentType"]
+
+
+def _job_profiles(count: int) -> list[dict[str, Any]]:
+    return [{"id": i, "name": f"Profile {i}"} for i in range(count)]
+
+
+def _job_profile_field(items: list[dict[str, Any]]) -> dict[str, Any]:
+    metadata = [_field("/position/jobProfile", field_type="list", list_id="jobProfile")]
+    section = build_form_section(
+        OBJECT_TYPE_POSITION, metadata, {"jobProfile": items}, role="p", argument="f"
+    )
+    return _by_id(section)["/position/jobProfile"]
+
+
+def test_section_lists_every_option_up_to_the_cap() -> None:
+    field = _job_profile_field(_job_profiles(MAX_OPTIONS_PER_LIST))
+
+    assert [option["id"] for option in field["options"]] == list(
+        range(MAX_OPTIONS_PER_LIST)
+    )
+    assert "options_truncated" not in field
+    assert "options_note" not in field
+
+
+def test_section_truncates_long_lists_and_says_how_to_get_the_rest() -> None:
+    field = _job_profile_field(_job_profiles(MAX_OPTIONS_PER_LIST + 50))
+
+    assert len(field["options"]) == MAX_OPTIONS_PER_LIST
+    assert field["options"][-1]["id"] == MAX_OPTIONS_PER_LIST - 1
+    assert field["options_truncated"] is True
+    assert field["options_shown"] == MAX_OPTIONS_PER_LIST
+    assert field["options_total"] == MAX_OPTIONS_PER_LIST + 50
+    assert "hibob_get_company_named_lists" in field["options_note"]
+    assert "list_name='jobProfile'" in field["options_note"]
 
 
 def test_section_reports_lists_it_could_not_resolve() -> None:
