@@ -157,6 +157,10 @@ NARROWING_ARGUMENTS: dict[str, str] = {
     MANAGER_POSITION_FIELD: "manager",
 }
 PATH_SEPARATOR = " > "
+# Words a query can contain that never help pick a leaf.
+QUERY_FILLER_WORDS = frozenset(
+    {"a", "an", "and", "at", "for", "in", "of", "on", "the", "to", "with"}
+)
 
 # Guidance that applies to every form, phrased for the caller filling it in.
 FORM_INSTRUCTIONS: tuple[str, ...] = (
@@ -514,12 +518,16 @@ def _word_hits(words: list[str], label: Any) -> int:
     )
 
 
-def rank_matches(leaves: list[dict[str, Any]], query: Any) -> list[dict[str, Any]]:
+def rank_matches(
+    leaves: list[dict[str, Any]], query: Any, *, require_all: bool = False
+) -> list[dict[str, Any]]:
     """The leaves that ``query`` picks out, best first.
 
     An ID or an exact name wins outright. Otherwise every word of the query
-    must start a word of the leaf's label, in any order; failing that, leaves
-    sharing any word are returned, those sharing more first.
+    (filler words such as "in" and "of" aside) must start a word of the
+    leaf's label, in any order; failing that, leaves sharing any word are
+    returned, those sharing more first, unless ``require_all`` is set, in
+    which case nothing is.
     """
     text = str(query or "").strip()
     if not text:
@@ -533,14 +541,14 @@ def rank_matches(leaves: list[dict[str, Any]], query: Any) -> list[dict[str, Any
     ]
     if exact:
         return exact
-    words = tokenize(text)
+    words = [word for word in tokenize(text) if word not in QUERY_FILLER_WORDS]
     if not words:
         return []
     scored = [
         (hits, leaf) for leaf in leaves if (hits := _word_hits(words, leaf.get("name")))
     ]
     full = [leaf for hits, leaf in scored if hits == len(words)]
-    if full:
+    if full or require_all:
         return full
     scored.sort(key=lambda pair: -pair[0])
     return [leaf for _, leaf in scored]

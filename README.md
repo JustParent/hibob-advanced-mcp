@@ -109,7 +109,7 @@ Field IDs are passed as flat mappings, for example `{"/position/fte": 100}`. The
 | `hibob_list_workforce_fields` | metadata for `position`, `positionOpening` or `positionBudget` | 50/min |
 | `hibob_get_workforce_form` | metadata for each section of the form, plus `GET /company/named-lists/{name}` for each list a field draws from | 50/min |
 | `hibob_get_company_named_lists` | `GET /company/named-lists/{name}`, or `GET /company/named-lists` summarised to names and sizes | — |
-| `hibob_search_positions` | `POST /objects/position/search` | 100/min |
+| `hibob_search_positions` | `POST /objects/position/search`; a free-text `query` is matched locally against title, code, department, site, job profile and holder | 100/min |
 | `hibob_search_position_openings` | `POST /positions/position-openings/search` | 100/min |
 | `hibob_get_openings_for_positions` | `POST /positions/position-openings/search`, every page | 100/min |
 | `hibob_get_positions_under` | `POST /objects/position/search`, every position, walked in memory | 100/min |
@@ -152,7 +152,7 @@ Required to create a position:
 | `positionOpening` (nested, required) | `expectedStartDate` |
 | `positionBudget` (nested, optional) | `salaryPayPeriod`, `currency` if the budget is supplied |
 
-Updatable on a position: `name`, `effectiveDate`, `managerPositionId`, `positionType`, `fte`, `employmentType`, `department`, `site`, `jobProfile`, `reason`.
+Updatable on a position: `name`, `effectiveDate`, `managerPositionId`, `positionType`, `fte`, `employmentType`, `department`, `site`, `jobProfile`, `reason`, plus custom fields (`/position/field_<number>`, IDs from `hibob_get_workforce_form`). Custom fields are passed to HiBob unverified: the result names them as `undocumented_fields`, a rejected update says they may be the reason, and a field HiBob accepted but did not keep shows up in `unconfirmed_fields` after the read-back. Fields HiBob sets itself (`id`, `status`, `filledBy`, ...) are refused before any request.
 
 Filterable fields: `/position/status`, `/position/name`, `/position/hasOpenRequests`, `/position/id`; `/positionOpening/id`, `/positionOpening/status` (`vacant`, `starting`, `filled`, `departing`, `cancelled`, `onHold`, `cancelledSoon`), `/positionOpening/positionOpeningName`. A search without filters returns everything: HiBob refuses an empty filter list, so the server sends a clause every record satisfies.
 

@@ -28,19 +28,20 @@ from .envelopes import (
     flatten_search_entries,
     normalize_field_key,
     normalize_id,
-    validate_allowed_keys,
     validate_required_keys,
 )
 from .errors import HiBobApiError, format_exception
 from .forms import (
     FORM_INSTRUCTIONS,
     MAX_OPTIONS_PER_LIST,
+    READ_ONLY_FIELDS,
     REQUIRED_FIELDS,
     build_form_section,
     collect_list_ids,
     count_list_items,
     index_named_lists,
     narrow_position_lists,
+    rank_matches,
     shape_list_items,
 )
 from .hierarchy import (
@@ -162,6 +163,19 @@ VERIFY_BUDGET_FIELDS = (
     "/positionBudget/expectedVariablePayCurrencyValue",
 )
 MAX_SEARCH_FIELDS = 50
+
+# What a free-text position query is matched against, since HiBob cannot
+# filter on any of them: the title, code, department, site, job profile and
+# holder. Their labels are joined into one line per position.
+POSITION_QUERY_FIELDS = (
+    "/position/position",
+    "/position/name",
+    "/position/department",
+    "/position/site",
+    "/position/jobProfile",
+    "/position/filledBy",
+)
+QUERY_LABEL_SEPARATOR = " · "
 
 # Sections of each form: (object type, role, argument of the submit tool).
 FORM_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
@@ -482,6 +496,135 @@ def _finish_write(result: dict[str, Any], problems: list[str]) -> dict[str, Any]
     if problems:
         result["verification_error"] = "; ".join(problems)
     return result
+
+
+def _unwrap(value: Any) -> Any:
+    """Strip HiBob's ``{"value": ...}`` wrappers, including money values."""
+    while isinstance(value, dict) and "value" in value:
+        value = value["value"]
+    return value
+
+
+def _as_list(value: Any) -> list[Any]:
+    return list(value) if isinstance(value, (list, tuple)) else [value]
+
+
+def _same_value(sent: Any, got: Any) -> bool:
+    """Whether a value read back matches what was written, allowing for the
+    shapes HiBob uses: numbers as strings, lists in any order, labels in
+    another case, money wrapped with its currency."""
+    sent, got = _unwrap(sent), _unwrap(got)
+    if isinstance(sent, bool) or isinstance(got, bool):
+        return bool(sent) == bool(got)
+    if isinstance(sent, (list, tuple)) or isinstance(got, (list, tuple)):
+        return sorted(normalize_id(x).lower() for x in _as_list(sent)) == sorted(
+            normalize_id(x).lower() for x in _as_list(got)
+        )
+    if sent is None or got is None:
+        return sent is None and got is None
+    return normalize_id(sent).lower() == normalize_id(got).lower()
+
+
+def _unconfirmed_fields(
+    object_type: str, written: dict[str, Any] | None, record: dict[str, Any] | None
+) -> dict[str, dict[str, Any]]:
+    """The written fields whose read-back value differs from what was sent."""
+    values = record.get("values") if isinstance(record, dict) else None
+    values = values if isinstance(values, dict) else {}
+    unconfirmed: dict[str, dict[str, Any]] = {}
+    for key, sent in (written or {}).items():
+        try:
+            field_id = normalize_field_key(object_type, key)
+        except ValueError:
+            continue
+        if field_id in (NESTED_POSITION_OPENING_KEY, NESTED_POSITION_BUDGET_KEY):
+            continue
+        got = values.get(field_id)
+        if not _same_value(sent, got):
+            unconfirmed[field_id] = {"sent": _unwrap(sent), "read_back": _unwrap(got)}
+    return unconfirmed
+
+
+def _confirm_written(
+    object_type: str,
+    written: dict[str, Any] | None,
+    record: dict[str, Any] | None,
+    result: dict[str, Any],
+    problems: list[str],
+) -> None:
+    """Compare a read-back record with what was written, recording any field
+    HiBob did not keep. A custom field is the usual reason, and is named."""
+    if record is None:
+        return
+    unconfirmed = _unconfirmed_fields(object_type, written, record)
+    if not unconfirmed:
+        return
+    result["unconfirmed_fields"] = unconfirmed
+    detail = ", ".join(
+        f"{field_id} (sent {info['sent']!r}, read back {info['read_back']!r})"
+        for field_id, info in unconfirmed.items()
+    )
+    message = (
+        f"HiBob accepted the write but these fields do not read back as sent: {detail}"
+    )
+    if any("/field_" in field_id for field_id in unconfirmed):
+        message += (
+            ". Custom fields may not be writable through HiBob's API; if so they "
+            "must be set in HiBob itself"
+        )
+    problems.append(message)
+
+
+def _position_query_label(entry: dict[str, Any]) -> str:
+    """One line describing a position, for matching a free-text query."""
+    display = entry.get("display") or {}
+    values = entry.get("values") or {}
+    parts: list[str] = []
+    for field_id in POSITION_QUERY_FIELDS:
+        label = display.get(field_id)
+        if label is None:
+            label = values.get(field_id)
+        if label is not None and str(label).strip():
+            parts.append(str(label).strip())
+    return QUERY_LABEL_SEPARATOR.join(parts)
+
+
+NEAR_MISSES_TO_NAME = 5
+
+
+def _match_position_query(
+    entries: list[dict[str, Any]], query: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """The positions a free-text query picks out, and the nearest misses.
+
+    A query equal to one part of a position's label (its title, code or
+    holder) matches that position alone. Otherwise every word must match;
+    when nothing does, the labels of the closest positions by word overlap
+    are returned instead, so the caller can refine the query.
+    """
+    labels = [_position_query_label(entry) for entry in entries]
+    wanted = query.strip().lower()
+    exact = [
+        entry
+        for entry, label in zip(entries, labels, strict=True)
+        if any(
+            part.strip().lower() == wanted
+            for part in label.split(QUERY_LABEL_SEPARATOR)
+        )
+    ]
+    if exact:
+        return exact, []
+    leaves = [
+        {"id": f"entry-{index}", "name": label} for index, label in enumerate(labels)
+    ]
+    by_leaf = {leaf["id"]: entry for leaf, entry in zip(leaves, entries, strict=True)}
+    matched = [
+        by_leaf[leaf["id"]] for leaf in rank_matches(leaves, query, require_all=True)
+    ]
+    if matched:
+        return matched, []
+    near = rank_matches(leaves, query)[:NEAR_MISSES_TO_NAME]
+    return [], [leaf["name"] for leaf in near]
 
 
 def _serialize_filters(filters: list[SearchFilter] | None) -> list[dict[str, Any]]:
@@ -899,6 +1042,18 @@ def register_workforce_planning_tools(
             bool,
             Field(description="Also return display labels for each value."),
         ] = True,
+        query: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Free text to match against each position's title, code, "
+                    "department, site, job profile and holder, e.g. 'customer "
+                    "success manager madrid' or 'Stina Grahn'. HiBob cannot filter "
+                    "on those, so every position the filters allow is fetched and "
+                    "matched here."
+                )
+            ),
+        ] = None,
     ) -> str:
         """Search the company's positions.
 
@@ -914,6 +1069,8 @@ def register_workforce_planning_tools(
             filters: Optional filter clauses combined by HiBob.
             include_human_readable: Include display labels alongside raw values.
 
+            query: Free text matched locally against title, code, department,
+                site, job profile and holder.
         Returns:
             str: JSON of the form {"count": int, "entries": [{"values": {...},
             "display": {...}}]}, or an error message beginning with "Error:".
@@ -928,15 +1085,42 @@ def register_workforce_planning_tools(
         Rate limit: 100 requests/minute.
         """
         try:
+            query_text = (query or "").strip()
+            search_fields = list(fields)
+            if query_text:
+                for field_id in POSITION_QUERY_FIELDS:
+                    if field_id not in search_fields:
+                        search_fields.append(field_id)
+                search_fields = search_fields[:MAX_SEARCH_FIELDS]
             body = _search_body(
-                fields, filters or [MATCH_ALL_POSITIONS_FILTER], include_human_readable
+                search_fields,
+                filters or [MATCH_ALL_POSITIONS_FILTER],
+                include_human_readable or bool(query_text),
             )
             payload = await client().search(POSITION_SEARCH_PATH, body)
             entries = payload
             if isinstance(payload, dict):
-                entries = payload.get("positionEntries") or payload.get("entries")
+                entries = (
+                    payload.get("values")
+                    or payload.get("positionEntries")
+                    or payload.get("entries")
+                )
             flattened = flatten_search_entries(entries)
-            return _dump({"count": len(flattened), "entries": flattened})
+            result: dict[str, Any] = {"count": len(flattened), "entries": flattened}
+            if query_text:
+                matched, near_misses = _match_position_query(flattened, query_text)
+                result = {
+                    "count": len(matched),
+                    "entries": matched,
+                    "query": query_text,
+                    "scanned": len(flattened),
+                }
+                if near_misses:
+                    result["note"] = (
+                        "No position matches every word of the query. Nearest by "
+                        "word overlap: " + "; ".join(near_misses)
+                    )
+            return _dump(result)
         except Exception as exc:
             return format_exception(exc)
 
@@ -1459,6 +1643,10 @@ def register_workforce_planning_tools(
             opening_id = result.get("positionOpeningId")
             if position_id is None and opening_id is None:
                 problems.append("HiBob's response did not include the new IDs")
+            written = {
+                OBJECT_TYPE_POSITION: position_fields,
+                OBJECT_TYPE_OPENING: opening_fields,
+            }
             if position_id is not None:
                 record, problem = await _verify(
                     f"position {position_id}",
@@ -1477,6 +1665,13 @@ def register_workforce_planning_tools(
                 )
                 if record is not None:
                     result["position"] = record
+                    _confirm_written(
+                        OBJECT_TYPE_POSITION,
+                        written[OBJECT_TYPE_POSITION],
+                        record,
+                        result,
+                        problems,
+                    )
                 if problem:
                     problems.append(problem)
             if opening_id is not None:
@@ -1495,6 +1690,13 @@ def register_workforce_planning_tools(
                 )
                 if record is not None:
                     result["opening"] = record
+                    _confirm_written(
+                        OBJECT_TYPE_OPENING,
+                        written[OBJECT_TYPE_OPENING],
+                        record,
+                        result,
+                        problems,
+                    )
                 if problem:
                     problems.append(problem)
             return _dump(_finish_write(result, problems))
@@ -1521,7 +1723,9 @@ def register_workforce_planning_tools(
                 description=(
                     "Fields to change, as a flat mapping. Updatable: name, "
                     "effectiveDate, managerPositionId, positionType, fte, "
-                    "employmentType, department, site, jobProfile, reason."
+                    "employmentType, department, site, jobProfile, reason, and "
+                    "custom fields (/position/field_<number>) whose IDs come from "
+                    "hibob_get_workforce_form."
                 )
             ),
         ],
@@ -1529,18 +1733,23 @@ def register_workforce_planning_tools(
         """Change details of an existing position.
 
         Only the fields supplied are modified. Use hibob_search_positions to
-        find the position ID first.
+        find the position ID first. Custom fields (/position/field_<number>,
+        such as a "Locations for hiring" list) are passed through to HiBob
+        unverified: the result lists them as "undocumented_fields", and if
+        HiBob rejects the update or quietly drops one of them, the error or
+        "unconfirmed_fields" says so.
 
         Args:
             position_id: The position's ID.
             fields: Flat mapping of field IDs to new values.
 
         Returns:
-            str: JSON {"status": "updated", "verified": bool, "position": {...}}
-            with the position read back from HiBob, including the fields just
-            changed; "verification_error" explains a failed read-back, which
-            does not mean the update failed. Or an error message beginning
-            with "Error:".
+            str: JSON {"status": "updated", "verified": bool, "position": {...},
+            "undocumented_fields"?: [...], "unconfirmed_fields"?: {...}} with
+            the position read back from HiBob, including the fields just
+            changed; "verification_error" explains a failed read-back or a
+            field HiBob did not keep, neither of which means the update
+            failed. Or an error message beginning with "Error:".
 
         Examples:
             - "Move that position's start to October" -> fields with
@@ -1551,16 +1760,49 @@ def register_workforce_planning_tools(
         try:
             if not fields:
                 raise ValueError("Provide at least one field to update.")
-            validate_allowed_keys(
-                OBJECT_TYPE_POSITION, fields, UPDATABLE_POSITION_FIELDS
+            normalized = [
+                normalize_field_key(OBJECT_TYPE_POSITION, key) for key in fields
+            ]
+            read_only = sorted(
+                field_id
+                for field_id in normalized
+                if field_id in READ_ONLY_FIELDS[OBJECT_TYPE_POSITION]
+            )
+            if read_only:
+                raise ValueError(
+                    "Field(s) set by HiBob and not updatable: "
+                    f"{', '.join(read_only)}. Updatable fields are "
+                    f"{', '.join(sorted(UPDATABLE_POSITION_FIELDS))}, plus custom "
+                    "fields such as /position/field_<number>."
+                )
+            undocumented = sorted(
+                field_id
+                for field_id in normalized
+                if field_id not in UPDATABLE_POSITION_FIELDS
             )
             body = build_items_envelope(OBJECT_TYPE_POSITION, fields)
             path = f"{POSITIONS_PATH}/{position_id}"
             api = client()
-            patched = await api.patch(path, body)
+            try:
+                patched = await api.patch(path, body)
+            except HiBobApiError as exc:
+                if undocumented:
+                    raise HiBobApiError(
+                        f"{exc} The update included fields outside HiBob's "
+                        "documented position payload "
+                        f"({', '.join(undocumented)}). HiBob may not accept custom "
+                        "fields through its API; if so they must be set in HiBob "
+                        "itself.",
+                        status_code=exc.status_code,
+                        hibob_key=exc.hibob_key,
+                        hibob_error=exc.hibob_error,
+                    ) from exc
+                raise
             result: dict[str, Any] = {"status": "updated"}
             if isinstance(patched, dict) and patched:
                 result["response"] = patched
+            if undocumented:
+                result["undocumented_fields"] = undocumented
             record, problem = await _verify(
                 f"position {position_id}",
                 _read_back(
@@ -1574,9 +1816,11 @@ def register_workforce_planning_tools(
                     paginated=False,
                 ),
             )
+            problems = [problem] if problem else []
             if record is not None:
                 result["position"] = record
-            return _dump(_finish_write(result, [problem] if problem else []))
+                _confirm_written(OBJECT_TYPE_POSITION, fields, record, result, problems)
+            return _dump(_finish_write(result, problems))
         except Exception as exc:
             return format_exception(exc)
 
@@ -1691,6 +1935,9 @@ def register_workforce_planning_tools(
                     problems.append(problem)
                 if record is not None:
                     result["opening"] = record
+                    _confirm_written(
+                        OBJECT_TYPE_OPENING, fields, record, result, problems
+                    )
                     parent = normalize_id(
                         record["values"].get(OPENING_POSITION_ID_FIELD)
                     )
@@ -1767,9 +2014,11 @@ def register_workforce_planning_tools(
                     paginated=True,
                 ),
             )
+            problems = [problem] if problem else []
             if record is not None:
                 result["opening"] = record
-            return _dump(_finish_write(result, [problem] if problem else []))
+                _confirm_written(OBJECT_TYPE_OPENING, fields, record, result, problems)
+            return _dump(_finish_write(result, problems))
         except Exception as exc:
             return format_exception(exc)
 
@@ -1896,6 +2145,9 @@ def register_workforce_planning_tools(
                 )
                 if record is not None:
                     result["budget"] = record
+                    _confirm_written(
+                        OBJECT_TYPE_BUDGET, fields, record, result, problems
+                    )
                 if problem:
                     problems.append(problem)
             return _dump(_finish_write(result, problems))
@@ -1960,8 +2212,10 @@ def register_workforce_planning_tools(
                     paginated=True,
                 ),
             )
+            problems = [problem] if problem else []
             if record is not None:
                 result["budget"] = record
-            return _dump(_finish_write(result, [problem] if problem else []))
+                _confirm_written(OBJECT_TYPE_BUDGET, fields, record, result, problems)
+            return _dump(_finish_write(result, problems))
         except Exception as exc:
             return format_exception(exc)
