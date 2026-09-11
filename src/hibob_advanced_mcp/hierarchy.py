@@ -43,6 +43,7 @@ RESOLVED_BY_POSITION_ID = "position_id"
 RESOLVED_BY_POSITION_NAME = "position_name"
 RESOLVED_BY_EMPLOYEE_ID = "employee_id"
 RESOLVED_BY_HOLDER_NAME = "holder_name"
+RESOLVED_BY_EMAIL = "email"
 
 
 def _cell(row: dict[str, Any], field: str) -> tuple[Any, Any]:

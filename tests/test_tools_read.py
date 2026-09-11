@@ -415,3 +415,59 @@ async def test_paged_search_accepts_documented_entries_key(
 
     assert result["count"] == 1
     assert result["entries"][0]["values"]["/positionOpening/id"] == 9
+
+
+# ------------------------------------------------ searches without filters
+
+
+MATCH_ALL = {"operator": "notEqual", "values": ["1"]}
+
+
+async def test_position_search_without_filters_returns_every_position(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob refuses an empty filter list, so the server sends a clause every
+    position satisfies."""
+    route = mock_api.post("/objects/position/search").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    await call_tool(mcp_server, "hibob_search_positions", {"fields": ["/position/id"]})
+
+    assert json.loads(route.calls.last.request.content)["filters"] == [
+        {"fieldId": "/position/id", **MATCH_ALL}
+    ]
+
+
+async def test_openings_search_without_filters_returns_every_opening(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.post("/positions/position-openings/search").mock(
+        return_value=httpx.Response(200, json={"values": []})
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_search_position_openings",
+        {"fields": ["/positionOpening/id"]},
+    )
+
+    assert json.loads(route.calls.last.request.content)["filters"] == [
+        {"fieldId": "/positionOpening/id", **MATCH_ALL}
+    ]
+
+
+async def test_budget_search_without_filters_returns_every_budget(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.post("/positions/position-budget/search").mock(
+        return_value=httpx.Response(200, json={"values": []})
+    )
+
+    await call_tool(
+        mcp_server, "hibob_search_position_budgets", {"fields": ["/positionBudget/id"]}
+    )
+
+    assert json.loads(route.calls.last.request.content)["filters"] == [
+        {"fieldId": "/positionBudget/id", **MATCH_ALL}
+    ]

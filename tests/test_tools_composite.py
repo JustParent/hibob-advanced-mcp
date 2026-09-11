@@ -1038,3 +1038,111 @@ async def test_positions_under_reports_no_match_as_an_error(
 
     assert result.startswith("Error:")
     assert "Nobody Here" in result
+
+
+async def test_openings_for_positions_accepts_every_opening_status(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob's opening statuses go beyond the four the API reference lists."""
+    route = mock_api.post(OPENINGS_SEARCH).mock(return_value=_page([]))
+
+    await call_tool(
+        mcp_server,
+        "hibob_get_openings_for_positions",
+        {"position_ids": ["7"], "statuses": ["cancelled", "onHold", "cancelledSoon"]},
+    )
+
+    assert _body(route)["filters"] == [
+        {
+            "fieldId": "/positionOpening/status",
+            "operator": "equals",
+            "values": ["cancelled", "onHold", "cancelledSoon"],
+        }
+    ]
+
+
+# ------------------------------------------- positions under: email lookup
+
+
+PEOPLE_SEARCH = "/people/search"
+
+
+async def test_positions_under_resolves_an_email_with_a_narrow_people_lookup(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """Only the employee ID is requested, for one email, and nothing else."""
+    people = mock_api.post(PEOPLE_SEARCH).mock(
+        return_value=httpx.Response(200, json={"employees": [{"id": "200"}]})
+    )
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=COMPANY))
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_positions_under", {"position": "Sam.Roe@example.com"}
+        )
+    )
+
+    assert people.call_count == 1
+    assert json.loads(people.calls.last.request.content) == {
+        "fields": ["root.id"],
+        "filters": [
+            {
+                "fieldPath": "root.email",
+                "operator": "equals",
+                "values": ["sam.roe@example.com"],
+            }
+        ],
+    }
+    assert result["root"]["id"] == "12"
+    assert result["resolved_by"] == "email"
+    assert [p["id"] for p in result["positions"]] == ["14"]
+
+
+async def test_positions_under_reports_an_email_hibob_does_not_know(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post(PEOPLE_SEARCH).mock(
+        return_value=httpx.Response(200, json={"employees": []})
+    )
+    positions = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=COMPANY)
+    )
+
+    result = await call_tool(
+        mcp_server, "hibob_get_positions_under", {"position": "nobody@example.com"}
+    )
+
+    assert result.startswith("Error:")
+    assert "nobody@example.com" in result
+    assert not positions.called
+
+
+async def test_positions_under_reports_an_employee_without_a_position(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post(PEOPLE_SEARCH).mock(
+        return_value=httpx.Response(200, json={"employees": [{"id": "999"}]})
+    )
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=COMPANY))
+
+    result = await call_tool(
+        mcp_server, "hibob_get_positions_under", {"position": "new@example.com"}
+    )
+
+    assert result.startswith("Error:")
+    assert "new@example.com" in result
+    assert "holds no position" in result
+
+
+async def test_positions_under_explains_a_refused_people_lookup(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post(PEOPLE_SEARCH).mock(return_value=httpx.Response(403, json={}))
+
+    result = await call_tool(
+        mcp_server, "hibob_get_positions_under", {"position": "sam@example.com"}
+    )
+
+    assert result.startswith("Error:")
+    assert "email" in result
+    assert "employee ID" in result
