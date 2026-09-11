@@ -18,6 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .cache import NamedListCache
 from .client import HiBobClient, get_client
+from .costs import (
+    BUDGET_ID_FIELD,
+    GROUP_BY_FIELDS,
+    POSITION_BUDGET_REF_FIELD,
+    cell_value,
+    join_positions_to_budgets,
+    summarize_costs,
+)
 from .envelopes import (
     NESTED_POSITION_BUDGET_KEY,
     NESTED_POSITION_OPENING_KEY,
@@ -109,6 +117,20 @@ OpeningStatusLiteral = Literal[
 OPENING_STATUS_VALUES = (
     "vacant, starting, filled, departing, cancelled, onHold, cancelledSoon"
 )
+# HiBob's positionStatus list. It carries the same seven values as
+# positionOpeningStatuses, but it is a different list, so it is named apart.
+PositionStatusLiteral = Literal[
+    "vacant",
+    "starting",
+    "filled",
+    "departing",
+    "cancelled",
+    "onHold",
+    "cancelledSoon",
+]
+POSITION_STATUS_VALUES = (
+    "vacant, starting, filled, departing, cancelled, onHold, cancelledSoon"
+)
 
 OPENING_ID_FIELD = "/positionOpening/id"
 OPENING_POSITION_ID_FIELD = "/positionOpening/positionId"
@@ -152,17 +174,55 @@ VERIFY_POSITION_FIELDS = (
     "/position/expectedStartDate",
 )
 VERIFY_OPENING_FIELDS = DEFAULT_OPENING_FIELDS
+# A budget carries no positionId: the only link is "/position/budget" on the
+# position itself. HiBob drops unrecognized field IDs silently, so a phantom
+# field here would cost the caller a real one rather than raising.
 VERIFY_BUDGET_FIELDS = (
     "/positionBudget/id",
-    "/positionBudget/positionId",
     "/positionBudget/currency",
     "/positionBudget/salaryPayPeriod",
     "/positionBudget/expectedBaseSalaryCurrencyValue",
     "/positionBudget/totalPositionCostCurrencyValue",
+    "/positionBudget/convertedTotalCostCurrencyValue",
+    "/positionBudget/proRatedCostCurrencyValue",
+    "/positionBudget/proRatedCostPercentage",
     "/positionBudget/variablePayPeriod",
     "/positionBudget/expectedVariablePayCurrencyValue",
 )
 MAX_SEARCH_FIELDS = 50
+
+# Cost lives on the positionBudget object, reachable only through
+# "/position/budget" on the position. These are the figures the HiBob UI shows
+# on a position's cost panel.
+DEFAULT_BUDGET_COST_FIELDS = (
+    BUDGET_ID_FIELD,
+    "/positionBudget/currency",
+    "/positionBudget/salaryPayPeriod",
+    "/positionBudget/expectedBaseSalaryCurrencyValue",
+    "/positionBudget/totalPositionCostCurrencyValue",
+    "/positionBudget/convertedTotalCostCurrencyValue",
+    "/positionBudget/proRatedCostCurrencyValue",
+    "/positionBudget/proRatedCostPercentage",
+    "/positionBudget/expectedVariablePayCurrencyValue",
+    "/positionBudget/variablePayPeriod",
+)
+# What each costed row says about the position itself.
+DEFAULT_POSITION_COST_FIELDS = (
+    "/position/id",
+    "/position/name",
+    "/position/position",
+    "/position/status",
+    "/position/department",
+    "/position/site",
+    "/position/jobProfile",
+    "/position/effectiveDate",
+)
+# One page holds every budget in a company of this size; the cursor is still
+# followed, so a larger tenant is not silently truncated.
+BUDGET_PAGE_SIZE = 1000
+MAX_BUDGET_SCAN_PAGES = 100
+GROUP_BY_VALUES = ", ".join(sorted(GROUP_BY_FIELDS))
+GroupByLiteral = Literal["department", "site", "status", "jobProfile", "currency"]
 
 # What a free-text position query is matched against, since HiBob cannot
 # filter on any of them: the title, code, department, site, job profile and
@@ -652,8 +712,8 @@ def _search_body(
     }
 
 
-def _paged_search_result(payload: Any, entries_key: str) -> dict[str, Any]:
-    """Shape a cursor-paginated search response for the caller."""
+def _raw_search_entries(payload: Any, entries_key: str) -> tuple[Any, str | None]:
+    """The entries of a search response, unflattened, and its next cursor."""
     if isinstance(payload, list):
         # Tolerate a bare list, as the position search endpoint returns.
         entries: Any = payload
@@ -667,6 +727,18 @@ def _paged_search_result(payload: Any, entries_key: str) -> dict[str, Any]:
         entries = None
         metadata = None
     next_cursor = metadata.get("next_cursor") if isinstance(metadata, dict) else None
+    return entries, next_cursor
+
+
+def _raw_rows(payload: Any, entries_key: str) -> list[dict[str, Any]]:
+    """Just the entry dictionaries, for joining before they are flattened."""
+    entries, _ = _raw_search_entries(payload, entries_key)
+    return [entry for entry in entries or [] if isinstance(entry, dict)]
+
+
+def _paged_search_result(payload: Any, entries_key: str) -> dict[str, Any]:
+    """Shape a cursor-paginated search response for the caller."""
+    entries, next_cursor = _raw_search_entries(payload, entries_key)
 
     flattened = flatten_search_entries(entries)
     result: dict[str, Any] = {"count": len(flattened), "entries": flattened}
@@ -676,6 +748,75 @@ def _paged_search_result(payload: Any, entries_key: str) -> dict[str, Any]:
     else:
         result["has_more"] = False
     return result
+
+
+async def _fetch_budgets(
+    client: HiBobClient, fields: list[str], filters: list[SearchFilter]
+) -> list[dict[str, Any]]:
+    """Every budget the filters match, following the cursor to the last page."""
+    rows: list[dict[str, Any]] = []
+    seen_cursors: set[str] = set()
+    cursor: str | None = None
+    body = _search_body(fields, filters, True)
+    for _ in range(MAX_BUDGET_SCAN_PAGES):
+        pagination: dict[str, Any] = {"limit": BUDGET_PAGE_SIZE}
+        if cursor:
+            pagination["cursor"] = cursor
+        payload = await client.search(
+            BUDGET_SEARCH_PATH, {**body, "pagination": pagination}
+        )
+        rows.extend(_raw_rows(payload, "positionBudgetEntries"))
+        _, cursor = _raw_search_entries(payload, "positionBudgetEntries")
+        if not cursor or cursor in seen_cursors:
+            break
+        seen_cursors.add(cursor)
+    return rows
+
+
+async def _costed_rows(
+    client: HiBobClient,
+    position_filters: list[SearchFilter],
+    include_human_readable: bool,
+    *,
+    every_budget: bool = False,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Positions matching the filters, each merged with its budget.
+
+    Two calls: the positions, then their budgets. The join happens here
+    because a budget carries no position ID of its own. ``every_budget`` asks
+    HiBob for all of them rather than naming each ID, which is what a
+    company-wide roll-up wants and what keeps the filter from growing with
+    the company.
+    """
+    position_fields = list(
+        dict.fromkeys([*DEFAULT_POSITION_COST_FIELDS, POSITION_BUDGET_REF_FIELD])
+    )
+    payload = await client.search(
+        POSITION_SEARCH_PATH,
+        _search_body(position_fields, position_filters, include_human_readable),
+    )
+    position_rows = _raw_rows(payload, "positionEntries")
+
+    refs: list[str] = []
+    for row in position_rows:
+        ref = cell_value(row, POSITION_BUDGET_REF_FIELD)
+        if ref is not None:
+            value = normalize_id(ref)
+            if value not in refs:
+                refs.append(value)
+
+    budget_rows: list[dict[str, Any]] = []
+    if every_budget:
+        budget_rows = await _fetch_budgets(
+            client, list(DEFAULT_BUDGET_COST_FIELDS), [MATCH_ALL_BUDGETS_FILTER]
+        )
+    elif refs:
+        budget_rows = await _fetch_budgets(
+            client,
+            list(DEFAULT_BUDGET_COST_FIELDS),
+            [SearchFilter(field_id=BUDGET_ID_FIELD, values=refs)],
+        )
+    return join_positions_to_budgets(position_rows, budget_rows)
 
 
 def register_workforce_planning_tools(
@@ -1493,7 +1634,8 @@ def register_workforce_planning_tools(
             Field(description="Optional filter clauses on budget fields."),
         ] = None,
         limit: Annotated[
-            int, Field(description="Maximum entries per page.", ge=1, le=100)
+            int,
+            Field(description="Maximum entries per page, up to 1000.", ge=1, le=1000),
         ] = 100,
         cursor: Annotated[
             str | None, Field(description="Cursor from a previous page.")
@@ -1510,7 +1652,7 @@ def register_workforce_planning_tools(
         Args:
             fields: Field IDs to return (1-50).
             filters: Optional filter clauses.
-            limit: Page size, 1-100.
+            limit: Page size, 1-1000. HiBob rejects anything larger.
             cursor: Cursor from a previous page, or None to start.
             include_human_readable: Include display labels.
 
@@ -1530,6 +1672,160 @@ def register_workforce_planning_tools(
             body["pagination"] = pagination
             payload = await client().search(BUDGET_SEARCH_PATH, body)
             return _dump(_paged_search_result(payload, "positionBudgetEntries"))
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_get_position_costs",
+        annotations=ToolAnnotations(
+            title="Get HiBob position costs",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_get_position_costs(
+        position_ids: Annotated[
+            list[str | int],
+            Field(
+                description="One or more position IDs, as returned in '/position/id'.",
+                min_length=1,
+            ),
+        ],
+        include_human_readable: Annotated[
+            bool, Field(description="Also return display labels for each value.")
+        ] = True,
+    ) -> str:
+        """Get what each of these positions costs: salary, total and prorated.
+
+        Cost is not a field on a position. It lives on a separate
+        positionBudget object, and the only link is '/position/budget' on the
+        position, which holds the budget's ID -- a budget carries no position
+        ID of its own. This tool fetches the positions, reads that reference
+        off each one, fetches exactly those budgets and joins them, so one
+        call answers "what does this position cost?".
+
+        Args:
+            position_ids: Position IDs to price, from '/position/id'.
+            include_human_readable: Include display labels alongside raw values.
+
+        Returns:
+            str: JSON {"count": int, "entries": [{"values": {...}, "display":
+            {...}}], "positions_without_budget": ["<position id>"]}, or an
+            error message beginning with "Error:". Each entry carries the
+            position's own fields and its budget's cost fields together; money
+            arrives as {"value": number, "currency": str}.
+
+        Examples:
+            - "What does position 4821 cost?" -> position_ids=['4821']
+            - "Cost of these three seats" -> position_ids=['12','15','19']
+            - Don't use when: rolling cost up across a department or the whole
+              company (use hibob_summarize_position_costs), which needs no IDs.
+
+        Rate limit: 100 requests/minute; this uses two requests.
+        """
+        try:
+            wanted = _normalize_position_ids(position_ids)
+            merged, unbudgeted = await _costed_rows(
+                client(),
+                [SearchFilter(field_id="/position/id", values=wanted)],
+                include_human_readable,
+            )
+            entries = flatten_search_entries(merged)
+            # A position HiBob did not return is named rather than left out:
+            # silence is what sends callers looking for cost in the first place.
+            found = {
+                normalize_id(cell_value(row, "/position/id")) for row in merged
+            } | set(unbudgeted)
+            return _dump(
+                {
+                    "count": len(entries),
+                    "entries": entries,
+                    "positions_without_budget": unbudgeted,
+                    "positions_not_found": [pid for pid in wanted if pid not in found],
+                }
+            )
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_summarize_position_costs",
+        annotations=ToolAnnotations(
+            title="Summarize HiBob position costs",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_summarize_position_costs(
+        group_by: Annotated[
+            GroupByLiteral | None,
+            Field(
+                description=(
+                    f"Dimension to break the total down by ({GROUP_BY_VALUES}). "
+                    "Omit for a single company-wide total."
+                )
+            ),
+        ] = None,
+        statuses: Annotated[
+            list[PositionStatusLiteral] | None,
+            Field(
+                description=(
+                    f"Only count positions in these statuses "
+                    f"({POSITION_STATUS_VALUES}). Omit for every position."
+                )
+            ),
+        ] = None,
+    ) -> str:
+        """Roll planned position cost up across the company or a department.
+
+        HiBob can neither filter nor group by any cost field, so this fetches
+        every position and every budget (two calls), joins them on
+        '/position/budget' and aggregates here.
+
+        Only the converted figures are totalled. HiBob reports each position's
+        total in its own local currency, so adding those together across
+        countries would produce a meaningless number; the converted values
+        share the company's reporting currency and are what can be summed.
+
+        Args:
+            group_by: Break the total down by this dimension, or None for one
+                company-wide total.
+            statuses: Restrict to positions in these statuses.
+
+        Returns:
+            str: JSON {"position_count": int, "currency": str,
+            "total_converted_cost": float, "groups": [{"group": str,
+            "position_count": int, "total_converted_cost": float}],
+            "positions_without_budget": ["<position id>"]}, or an error
+            message beginning with "Error:". If converted costs ever come back
+            in more than one currency, "total_converted_cost" is null and
+            "totals_by_currency" carries a total per currency instead.
+
+        Examples:
+            - "What is our planned headcount cost?" -> no arguments
+            - "Budgeted cost by department" -> group_by='department'
+            - "Cost of everything still vacant" -> statuses=['vacant']
+            - Don't use when: you need the cost of specific positions (use
+              hibob_get_position_costs).
+
+        Rate limit: 100 requests/minute; this uses two requests.
+        """
+        try:
+            if statuses:
+                position_filters = [
+                    SearchFilter(field_id="/position/status", values=list(statuses))
+                ]
+            else:
+                position_filters = [MATCH_ALL_POSITIONS_FILTER]
+            merged, unbudgeted = await _costed_rows(
+                client(), position_filters, True, every_budget=True
+            )
+            summary = summarize_costs(merged, group_by)
+            summary["positions_without_budget"] = unbudgeted
+            return _dump(summary)
         except Exception as exc:
             return format_exception(exc)
 
