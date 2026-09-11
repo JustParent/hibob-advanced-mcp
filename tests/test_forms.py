@@ -385,3 +385,76 @@ def test_field_knowledge_is_internally_consistent() -> None:
         )
     all_writable = {f for fields in WRITABLE_FIELDS.values() for f in fields}
     assert set(DOCUMENTED_VALUES) <= all_writable
+
+
+# ------------------------------------------------------- narrowing large lists
+
+
+def test_flatten_leaves_labels_each_leaf_with_its_path() -> None:
+    from hibob_advanced_mcp.forms import flatten_leaves
+
+    tree = [
+        {
+            "id": 1,
+            "name": "Data",
+            "children": [
+                {
+                    "id": 2,
+                    "name": "Head of Data",
+                    "children": [{"id": 3, "name": "P-1 · London · Jane Doe"}],
+                },
+                {"id": 4, "name": "Analyst", "children": []},
+            ],
+        },
+        {"id": 5, "name": "Legal"},
+    ]
+
+    assert flatten_leaves(tree) == [
+        {"id": 3, "name": "Data > Head of Data > P-1 · London · Jane Doe"},
+        {"id": 4, "name": "Data > Analyst"},
+        {"id": 5, "name": "Legal"},
+    ]
+
+
+def test_rank_matches_prefers_ids_then_exact_names_then_every_word() -> None:
+    from hibob_advanced_mcp.forms import rank_matches
+
+    leaves = [
+        {"id": 10, "name": "Data Scientist > C Data Scientist Data (J-1)"},
+        {"id": 11, "name": "Data Engineer > C Data Engineer Data (J-2)"},
+        {"id": 12, "name": "Software Engineer > C Software Engineer (J-3)"},
+    ]
+
+    assert rank_matches(leaves, "11") == [leaves[1]]
+    assert rank_matches(leaves, "software engineer > c software engineer (j-3)") == [
+        leaves[2]
+    ]
+    # Every query word must start a word of the label ("engineer" fits
+    # "Engineer"); order does not matter.
+    assert rank_matches(leaves, "engineer data") == [leaves[1]]
+    assert rank_matches(leaves, "scientist") == [leaves[0]]
+    assert rank_matches(leaves, "  ") == []
+
+
+def test_rank_matches_falls_back_to_any_word_ranked_by_overlap() -> None:
+    from hibob_advanced_mcp.forms import rank_matches
+
+    leaves = [
+        {"id": 1, "name": "Account Executive"},
+        {"id": 2, "name": "Account Manager"},
+        {"id": 3, "name": "Designer"},
+    ]
+
+    # No leaf has both words, so the ones with more of them come first.
+    assert rank_matches(leaves, "senior account executive") == [leaves[0], leaves[1]]
+    assert rank_matches(leaves, "plumber") == []
+
+
+def test_subtree_for_returns_a_matching_top_level_branch_or_the_whole_tree() -> None:
+    from hibob_advanced_mcp.forms import subtree_for
+
+    data = {"id": 1, "name": "Data", "children": [{"id": 2, "name": "P-1"}]}
+    tree = [data, {"id": 3, "name": "Legal", "children": []}]
+
+    assert subtree_for(tree, "data") == data["children"]
+    assert subtree_for(tree, "Nowhere") is None

@@ -107,19 +107,23 @@ Field IDs are passed as flat mappings, for example `{"/position/fte": 100}`. The
 | Tool | HiBob endpoint | Rate limit |
 | --- | --- | --- |
 | `hibob_list_workforce_fields` | metadata for `position`, `positionOpening` or `positionBudget` | 50/min |
-| `hibob_get_workforce_form` | metadata for each section of the form, plus `GET /company/named-lists` | 50/min |
-| `hibob_get_company_named_lists` | `GET /company/named-lists` | — |
+| `hibob_get_workforce_form` | metadata for each section of the form, plus `GET /company/named-lists/{name}` for each list a field draws from | 50/min |
+| `hibob_get_company_named_lists` | `GET /company/named-lists/{name}`, or `GET /company/named-lists` summarised to names and sizes | — |
 | `hibob_search_positions` | `POST /objects/position/search` | 100/min |
 | `hibob_search_position_openings` | `POST /positions/position-openings/search` | 100/min |
 | `hibob_get_openings_for_positions` | `POST /positions/position-openings/search`, every page | 100/min |
+| `hibob_get_positions_under` | `POST /objects/position/search`, every position, walked in memory | 100/min |
 | `hibob_search_position_budgets` | `POST /positions/position-budget/search` | 100/min |
 
 Search results come back as `{"count": N, "entries": [{"values": {...}, "display": {...}}]}`. `values` holds the raw values including the IDs the write tools need; `display` holds HiBob's human-readable labels. The opening and budget searches are cursor-paginated and return `has_more` and `next_cursor`; **position search has no pagination**, so request only the fields you need and filter where you can.
 
-Two of the read tools do work HiBob's API cannot do in one request:
+Three of the read tools do work HiBob's API cannot do in one request:
 
 - **`hibob_get_openings_for_positions`** answers "which openings belong to this position?". HiBob's opening search only filters by an opening's own ID, status or name, never by its parent position. The tool sends a filter every opening satisfies (`/positionOpening/id notEqual "1"`, the clause verified against HiBob's sandbox), pages through every opening 100 at a time, and joins on `/positionOpening/positionId` in memory. Pass several position IDs at once to pay for the scan once; a `statuses` filter is applied by HiBob and shortens it. The result reports `counts_by_position`, so a position with no openings shows as `0`, and `scan_complete`, which is false only if the scan hit its 10,000-opening safety cap.
-- **`hibob_get_workforce_form`** returns everything needed to fill in a create form as one blob: for `position` (the default) that is the position's fields plus the nested opening (required) and budget (optional) sections; for `positionOpening` or `positionBudget` just that object. Every list-backed field (department, site, job profile, currency, ...) arrives with its `options` resolved from the company's named lists, including the `id` to submit (a list longer than 100 items is truncated, and the field then says to fetch the rest with `hibob_get_company_named_lists`); fields with a fixed vocabulary (position type, recruitment status, pay periods) carry `allowed_values`; each field says whether it is `required`, and fields HiBob sets itself are listed separately as `read_only_fields`. Each section names the write tool argument it maps to (`position_fields`, `opening_fields`, `budget_fields` or `fields`), so the filled-in form can be passed straight to the create tool.
+- **`hibob_get_positions_under`** answers "which positions report up to me, and which are filled?". Position search cannot filter by manager position or by holder, but it returns every position in one unpaginated response with its manager position and the employee filling it, so the tool fetches them all (one request) and walks the reporting tree in memory. The top position can be given as a position ID, a position name (`P-...`), the holder's HiBob employee ID or the holder's name; that last one matters because HiBob has no call from an employee to their position, and a name fitting several people returns `candidates` instead. The result lists each position beneath with its status, holder and own manager position, `depth` levels down (1 for direct reports), with `counts_by_status`; a `statuses` filter is applied after the walk so a vacant position under a filled one is never lost.
+- **`hibob_get_workforce_form`** returns everything needed to fill in a create form as one blob: for `position` (the default) that is the position's fields plus the nested opening (required) and budget (optional) sections; for `positionOpening` or `positionBudget` just that object. Every list-backed field (department, site, job profile, currency, ...) arrives with its `options` resolved from the company's named lists, including the `id` to submit (a list longer than `max_options`, 100 by default, is truncated, and the field then says to fetch the rest with `hibob_get_company_named_lists`); fields with a fixed vocabulary (position type, recruitment status, pay periods) carry `allowed_values`; each field says whether it is `required`, and fields HiBob sets itself are listed separately as `read_only_fields`. Each section names the write tool argument it maps to (`position_fields`, `opening_fields`, `budget_fields` or `fields`), so the filled-in form can be passed straight to the create tool.
+
+  A form has to be complete when it is generated (a Slack form, say, needs every option up front), and job profiles and manager positions run to a thousand items. So for a position form the tool takes what the user should be asked first: `department`, `job_profile` (a rough title) and `manager` (a name, `P-...` position name or ID). A department pre-fills its field and narrows the manager choices to that department's branch of the position tree and the job profiles to those naming the department; a title or a manager's name picks out the matching leaves, and a single match pre-fills the field as `value`. Tree-shaped lists are offered as their leaves, labelled by path (`Data > Head of Data > P-0001 · London · Jane Doe`). If any of these three fields still cannot be offered within `max_options`, the response carries `questions` (each with the argument to pass, a question to ask the user and, when few enough, `candidates`) instead of `sections`; answer them and call again.
 
 ### Write (omitted when `HIBOB_READ_ONLY` is set)
 
@@ -134,7 +138,7 @@ Two of the read tools do work HiBob's API cannot do in one request:
 | `hibob_create_position_budget` | `POST .../position-budget` | 10/min |
 | `hibob_update_position_budget` | `PATCH .../position-budget/{budgetId}` | 10/min |
 
-Writes are limited to ten calls a minute, so required fields are validated before a request is sent and write calls are never retried automatically. Read calls retry twice on 429 and 5xx responses, honouring `Retry-After`.
+Writes are limited to ten calls a minute, so required fields are validated before a request is sent and write calls are never retried automatically. Read calls retry twice on 429 and 5xx responses, honouring `Retry-After`. Named lists are limited to fifty calls a minute and a position form needs a dozen or more, so fetched lists are cached in the server process for five minutes; a failed fetch is not cached.
 
 `hibob_create_position` creates one position per call, together with its first opening (HiBob requires one) and an optional budget.
 
@@ -152,7 +156,7 @@ Updatable on a position: `name`, `effectiveDate`, `managerPositionId`, `position
 
 Filterable fields: `/position/status`, `/position/name`, `/position/hasOpenRequests`, `/position/id`; `/positionOpening/id`, `/positionOpening/status` (`vacant`, `starting`, `filled`, `departing`), `/positionOpening/positionOpeningName`.
 
-Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. `hibob_get_workforce_form` returns those IDs alongside each field; `hibob_get_company_named_lists` returns the raw lists.
+Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. `hibob_get_workforce_form` returns those IDs alongside each field; `hibob_get_company_named_lists` returns one list's items, or with no `list_name` just the names and sizes of every list, since the full contents of every list can run to tens of megabytes.
 
 ## Development
 

@@ -13,6 +13,7 @@ from a single tool result. Network calls stay in ``workforce_planning``.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .envelopes import (
@@ -139,8 +140,23 @@ DOCUMENTED_VALUES: dict[str, tuple[str, ...]] = {
 }
 
 # Options per list field before the form points at the full list instead;
-# job catalogues in particular can run to thousands of items.
+# job catalogues in particular can run to thousands of items. Slack's static
+# select allows 100, hence the default.
 MAX_OPTIONS_PER_LIST = 100
+
+# Position fields whose lists are too large to inline as they are, with the
+# form-tool argument that narrows each one. Job profiles and manager positions
+# are trees (job family > profile; department > job > position) and only the
+# leaves are submittable, so their options are the leaves, labelled by path.
+DEPARTMENT_FIELD = "/position/department"
+JOB_PROFILE_FIELD = "/position/jobProfile"
+MANAGER_POSITION_FIELD = "/position/managerPositionId"
+NARROWING_ARGUMENTS: dict[str, str] = {
+    DEPARTMENT_FIELD: "department",
+    JOB_PROFILE_FIELD: "job_profile",
+    MANAGER_POSITION_FIELD: "manager",
+}
+PATH_SEPARATOR = " > "
 
 # Guidance that applies to every form, phrased for the caller filling it in.
 FORM_INSTRUCTIONS: tuple[str, ...] = (
@@ -153,6 +169,8 @@ FORM_INSTRUCTIONS: tuple[str, ...] = (
     "Dates are ISO 8601 strings (YYYY-MM-DD). 'fte' is a percentage, so 100 "
     "means full time.",
     "Fields listed under 'read_only_fields' are set by HiBob and must not be sent.",
+    "A field with 'value' is pre-filled from what the user already said; keep "
+    "it unless they change their mind.",
     "Submit each section's values as the argument named in its 'argument' "
     "key of the tool named in 'submit_with'.",
 )
@@ -307,12 +325,16 @@ def build_form_section(
     *,
     role: str,
     argument: str,
+    max_options: int = MAX_OPTIONS_PER_LIST,
+    overrides: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build one object's section of a form.
 
     ``named_lists`` is the index from :func:`index_named_lists`. List IDs that
     are not in it are reported under ``unresolved_lists`` so the caller can
-    fetch them individually or warn.
+    fetch them individually or warn. ``overrides`` (from
+    :func:`narrow_position_lists`) can replace a field's ``options`` and
+    pre-fill its ``value``.
     """
     required = REQUIRED_FIELDS.get(object_type, frozenset())
     read_only = READ_ONLY_FIELDS.get(object_type, frozenset())
@@ -353,26 +375,32 @@ def build_form_section(
         )
         if field_id not in documented:
             entry["documented"] = False
+        override = (overrides or {}).get(field_id) or {}
         if isinstance(list_id, str) and list_id:
             entry["list_id"] = list_id
             items = lookup_named_list(named_lists, list_id)
-            if items is None:
+            if "options" in override:
+                entry["options"] = list(override["options"])
+            elif items is None:
                 unresolved.add(list_id)
             else:
                 total = count_list_items(items)
-                entry["options"] = shape_list_items(items, limit=MAX_OPTIONS_PER_LIST)
-                if total > MAX_OPTIONS_PER_LIST:
+                entry["options"] = shape_list_items(items, limit=max_options)
+                if total > max_options:
                     entry["options_truncated"] = True
-                    entry["options_shown"] = MAX_OPTIONS_PER_LIST
+                    entry["options_shown"] = max_options
                     entry["options_total"] = total
                     entry["options_note"] = (
-                        f"Showing the first {MAX_OPTIONS_PER_LIST} of {total} "
+                        f"Showing the first {max_options} of {total} "
                         "items. Call hibob_get_company_named_lists with "
                         f"list_name='{list_id}' for the full list before offering "
                         "a choice that is not shown here."
                     )
         if "options" not in entry and field_id in DOCUMENTED_VALUES:
             entry["allowed_values"] = list(DOCUMENTED_VALUES[field_id])
+        for key in ("value", "value_name"):
+            if key in override:
+                entry[key] = override[key]
         fields.append(entry)
 
     # A documented field the metadata did not mention still belongs on the
@@ -424,3 +452,321 @@ def collect_list_ids(*metadata_payloads: Any) -> set[str]:
             if isinstance(list_id, str) and list_id:
                 list_ids.add(list_id)
     return list_ids
+
+
+def field_list_ids(object_type: str, metadata_payload: Any) -> dict[str, str]:
+    """Map each list-backed field ID to the named list it draws from."""
+    mapping: dict[str, str] = {}
+    for descriptor in normalize_metadata_fields(metadata_payload):
+        field_id = field_id_of(object_type, descriptor)
+        field_type = descriptor.get("fieldType")
+        type_data = field_type.get("typeData") if isinstance(field_type, dict) else None
+        list_id = type_data.get("listId") if isinstance(type_data, dict) else None
+        if field_id and isinstance(list_id, str) and list_id:
+            mapping[field_id] = list_id
+    return mapping
+
+
+# ---------------------------------------------------------------------------
+# Narrowing large lists from what the user has already said
+# ---------------------------------------------------------------------------
+
+
+def tokenize(text: Any) -> list[str]:
+    """Lower-case words of ``text``, split on anything that is not a letter or digit."""
+    return [word for word in re.split(r"[^0-9a-z]+", str(text or "").lower()) if word]
+
+
+def flatten_leaves(items: Any, prefix: str = "") -> list[dict[str, Any]]:
+    """The leaves of a list tree, each labelled with its path.
+
+    Only leaves can be submitted for a tree-shaped list, so a form offers
+    them directly, named by their path ("Data > Head of Data > P-1 · London ·
+    Jane Doe") so that any level of the path can be matched.
+    """
+    leaves: list[dict[str, Any]] = []
+    if not isinstance(items, list):
+        return leaves
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if name is None:
+            name = item.get("value")
+        label = f"{prefix}{PATH_SEPARATOR}{name}" if prefix else str(name)
+        children = item.get("children")
+        if isinstance(children, list) and children:
+            leaves.extend(flatten_leaves(children, label))
+            continue
+        leaf: dict[str, Any] = {"id": item.get("id"), "name": label}
+        if item.get("archived"):
+            leaf["archived"] = True
+        leaves.append(leaf)
+    return leaves
+
+
+def _word_hits(words: list[str], label: Any) -> int:
+    label_words = tokenize(label)
+    return sum(
+        1
+        for word in words
+        if any(label_word.startswith(word) for label_word in label_words)
+    )
+
+
+def rank_matches(leaves: list[dict[str, Any]], query: Any) -> list[dict[str, Any]]:
+    """The leaves that ``query`` picks out, best first.
+
+    An ID or an exact name wins outright. Otherwise every word of the query
+    must start a word of the leaf's label, in any order; failing that, leaves
+    sharing any word are returned, those sharing more first.
+    """
+    text = str(query or "").strip()
+    if not text:
+        return []
+    by_id = [leaf for leaf in leaves if str(leaf.get("id")) == text]
+    if by_id:
+        return by_id
+    lowered = text.lower()
+    exact = [
+        leaf for leaf in leaves if str(leaf.get("name", "")).strip().lower() == lowered
+    ]
+    if exact:
+        return exact
+    words = tokenize(text)
+    if not words:
+        return []
+    scored = [
+        (hits, leaf) for leaf in leaves if (hits := _word_hits(words, leaf.get("name")))
+    ]
+    full = [leaf for hits, leaf in scored if hits == len(words)]
+    if full:
+        return full
+    scored.sort(key=lambda pair: -pair[0])
+    return [leaf for _, leaf in scored]
+
+
+def subtree_for(tree: Any, name: Any) -> list[Any] | None:
+    """Children of the top-level node called ``name``, or None if there is none."""
+    wanted = str(name or "").strip().lower()
+    if not wanted or not isinstance(tree, list):
+        return None
+    for item in tree:
+        if (
+            isinstance(item, dict)
+            and str(item.get("name", "")).strip().lower() == wanted
+        ):
+            children = item.get("children")
+            return children if isinstance(children, list) else []
+    return None
+
+
+def _titles(leaves: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The distinct first path segments of ``leaves``, as name-only candidates."""
+    seen: list[str] = []
+    for leaf in leaves:
+        title = str(leaf.get("name", "")).split(PATH_SEPARATOR, 1)[0]
+        if title not in seen:
+            seen.append(title)
+    return [{"name": title} for title in seen]
+
+
+def _question(
+    field_id: str,
+    ask: str,
+    *,
+    hint: str | None,
+    matched: int,
+    candidates: list[dict[str, Any]],
+    max_options: int,
+) -> dict[str, Any]:
+    question: dict[str, Any] = {
+        "field": field_id,
+        "argument": NARROWING_ARGUMENTS[field_id],
+        "ask": ask,
+    }
+    if hint is not None:
+        question["hint"] = hint
+        question["matched"] = matched
+    if candidates and len(candidates) <= max_options:
+        question["candidates"] = candidates
+    return question
+
+
+def _choice(matches: list[dict[str, Any]]) -> dict[str, Any]:
+    override: dict[str, Any] = {"options": matches}
+    if len(matches) == 1:
+        override["value"] = matches[0]["id"]
+        override["value_name"] = matches[0]["name"]
+    return override
+
+
+def narrow_position_lists(
+    metadata_payload: Any,
+    named_lists: dict[str, list[Any]],
+    *,
+    department: str | None,
+    job_profile: str | None,
+    manager: str | None,
+    max_options: int,
+) -> tuple[dict[str, dict[str, Any]], list[dict[str, Any]]]:
+    """Narrow the position form's large lists from what the user has said.
+
+    Returns per-field overrides for :func:`build_form_section` and the
+    questions still to ask before every one of these fields can be offered
+    within ``max_options``. A department narrows the manager choices to that
+    department's branch of the position tree and the job profiles to those
+    whose label names the department; a job title and a manager's name pick
+    out leaves directly.
+    """
+    lists = field_list_ids(OBJECT_TYPE_POSITION, metadata_payload)
+    overrides: dict[str, dict[str, Any]] = {}
+    questions: list[dict[str, Any]] = []
+
+    def items_for(field_id: str) -> list[Any] | None:
+        list_id = lists.get(field_id)
+        return lookup_named_list(named_lists, list_id) if list_id else None
+
+    # Department: a single match pre-fills the field and scopes the others.
+    chosen_department: dict[str, Any] | None = None
+    department_items = items_for(DEPARTMENT_FIELD)
+    departments = (
+        flatten_leaves(department_items) if department_items is not None else []
+    )
+    if department and departments:
+        matches = rank_matches(departments, department)
+        if len(matches) == 1:
+            chosen_department = matches[0]
+            overrides[DEPARTMENT_FIELD] = {
+                "value": chosen_department["id"],
+                "value_name": chosen_department["name"],
+            }
+        else:
+            ask = (
+                f"No department matches {department!r}. Which department is this "
+                "position in?"
+                if not matches
+                else f"{len(matches)} departments match {department!r}. Which one "
+                "is it?"
+            )
+            questions.append(
+                _question(
+                    DEPARTMENT_FIELD,
+                    ask,
+                    hint=department,
+                    matched=len(matches),
+                    candidates=matches or departments,
+                    max_options=max_options,
+                )
+            )
+    elif len(departments) > max_options:
+        questions.append(
+            _question(
+                DEPARTMENT_FIELD,
+                "Which department is this position in?",
+                hint=None,
+                matched=0,
+                candidates=[],
+                max_options=max_options,
+            )
+        )
+
+    # Manager: matched by name anywhere in the tree, else the department branch.
+    position_items = items_for(MANAGER_POSITION_FIELD)
+    if position_items is not None:
+        every_position = flatten_leaves(position_items)
+        branch = (
+            subtree_for(position_items, chosen_department["name"])
+            if chosen_department
+            else None
+        )
+        scoped = flatten_leaves(branch) if branch is not None else every_position
+        if manager:
+            matches = rank_matches(every_position, manager)
+            if 0 < len(matches) <= max_options:
+                overrides[MANAGER_POSITION_FIELD] = _choice(matches)
+            else:
+                ask = (
+                    f"No position matches {manager!r} as the manager. Who does this "
+                    "position report to? Give the manager's name or their position."
+                    if not matches
+                    else f"{len(matches)} positions match {manager!r}. Which one is "
+                    "the manager?"
+                )
+                questions.append(
+                    _question(
+                        MANAGER_POSITION_FIELD,
+                        ask,
+                        hint=manager,
+                        matched=len(matches),
+                        candidates=matches or scoped,
+                        max_options=max_options,
+                    )
+                )
+        elif len(scoped) <= max_options:
+            overrides[MANAGER_POSITION_FIELD] = {"options": scoped}
+        else:
+            questions.append(
+                _question(
+                    MANAGER_POSITION_FIELD,
+                    "Who does this position report to? Give the manager's name or "
+                    "their position.",
+                    hint=None,
+                    matched=0,
+                    candidates=scoped,
+                    max_options=max_options,
+                )
+            )
+
+    # Job profile: scoped to profiles naming the department, then by title.
+    profile_items = items_for(JOB_PROFILE_FIELD)
+    if profile_items is not None:
+        every_profile = flatten_leaves(profile_items)
+        scoped = every_profile
+        if chosen_department:
+            words = tokenize(chosen_department["name"])
+            within = [
+                leaf
+                for leaf in every_profile
+                if words and _word_hits(words, leaf.get("name")) == len(words)
+            ]
+            if within:
+                scoped = within
+        if job_profile:
+            matches = rank_matches(scoped, job_profile) or rank_matches(
+                every_profile, job_profile
+            )
+            if 0 < len(matches) <= max_options:
+                overrides[JOB_PROFILE_FIELD] = _choice(matches)
+            else:
+                ask = (
+                    f"No job profile matches {job_profile!r}. What is the job title?"
+                    if not matches
+                    else f"{len(matches)} job profiles match {job_profile!r}. Which "
+                    "title fits best?"
+                )
+                questions.append(
+                    _question(
+                        JOB_PROFILE_FIELD,
+                        ask,
+                        hint=job_profile,
+                        matched=len(matches),
+                        candidates=matches or _titles(scoped),
+                        max_options=max_options,
+                    )
+                )
+        elif len(scoped) <= max_options:
+            overrides[JOB_PROFILE_FIELD] = {"options": scoped}
+        else:
+            questions.append(
+                _question(
+                    JOB_PROFILE_FIELD,
+                    "What kind of role is this? Give a job title.",
+                    hint=None,
+                    matched=0,
+                    candidates=_titles(scoped),
+                    max_options=max_options,
+                )
+            )
+
+    return overrides, questions

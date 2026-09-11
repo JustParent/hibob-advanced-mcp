@@ -55,6 +55,13 @@ def normalize_field_key(object_type: str, key: str) -> str:
     return f"/{object_type}/{name}"
 
 
+def normalize_id(value: Any) -> str:
+    """Render an ID the way HiBob's JSON does, so ints and strings compare."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
 def _wrap_value(value: Any) -> dict[str, Any]:
     """Wrap a raw value as ``{"value": ...}``, passing through pre-wrapped ones."""
     if (

@@ -15,6 +15,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 
+from .cache import NamedListCache
 from .client import HiBobClient, get_client
 from .envelopes import (
     OBJECT_TYPE_BUDGET,
@@ -22,17 +23,29 @@ from .envelopes import (
     OBJECT_TYPE_POSITION,
     build_items_envelope,
     flatten_search_entries,
+    normalize_id,
     validate_allowed_keys,
     validate_required_keys,
 )
 from .errors import HiBobApiError, format_exception
 from .forms import (
     FORM_INSTRUCTIONS,
+    MAX_OPTIONS_PER_LIST,
     REQUIRED_FIELDS,
     build_form_section,
     collect_list_ids,
+    count_list_items,
     index_named_lists,
-    lookup_named_list,
+    narrow_position_lists,
+    shape_list_items,
+)
+from .hierarchy import (
+    HIERARCHY_FIELDS,
+    counts_by_status,
+    positions_under,
+    resolve_root,
+    shape_position,
+    summarize_tree,
 )
 
 # Endpoint paths, relative to the versioned API base.
@@ -150,24 +163,25 @@ MATCH_ALL_OPENINGS_FILTER = SearchFilter(
     operator="notEqual",
     values=[MATCH_ALL_SENTINEL_OPENING_ID],
 )
+# The position scan behind hibob_get_positions_under uses the same sentinel:
+# position search cannot filter by manager or holder either, and accepts no
+# empty filter list.
+MATCH_ALL_POSITIONS_FILTER = SearchFilter(
+    field_id="/position/id",
+    operator="notEqual",
+    values=[MATCH_ALL_SENTINEL_OPENING_ID],
+)
 
 
 def _dump(payload: Any) -> str:
     return json.dumps(payload, indent=2, default=str)
 
 
-def _normalize_id(value: Any) -> str:
-    """Render an ID the way HiBob's JSON does, so ints and strings compare."""
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value).strip()
-
-
 def _normalize_position_ids(position_ids: list[str | int]) -> list[str]:
     """Deduplicate the requested position IDs, rejecting blanks."""
     normalized: list[str] = []
     for raw in position_ids:
-        value = _normalize_id(raw)
+        value = normalize_id(raw)
         if not value:
             raise ValueError("Position IDs cannot be empty.")
         if value not in normalized:
@@ -189,7 +203,7 @@ def _openings_for_positions(
         values = entry.get("values")
         if not isinstance(values, dict):
             continue
-        key = _normalize_id(values.get(OPENING_POSITION_ID_FIELD))
+        key = normalize_id(values.get(OPENING_POSITION_ID_FIELD))
         if key in counts:
             counts[key] += 1
             matched.append(entry)
@@ -225,36 +239,96 @@ async def _scan_openings(
     return entries, False
 
 
+def _named_list_path(list_name: str, include_archived: bool) -> str:
+    path = f"{NAMED_LISTS_PATH}/{list_name.strip()}"
+    return f"{path}?includeArchived=true" if include_archived else path
+
+
+def _named_list_items(payload: Any) -> list[Any]:
+    """Items of a single-list response.
+
+    The live endpoint answers ``{"name", "values", "items"}`` with the items
+    repeated under both keys; the reference documents ``items`` alone. A
+    bare list is accepted too.
+    """
+    if isinstance(payload, dict):
+        items = payload.get("items")
+        if items is None:
+            items = payload.get("values")
+        return items if isinstance(items, list) else []
+    return payload if isinstance(payload, list) else []
+
+
+# Cache key for the summary of every list, which no real list ID can collide with.
+ALL_LISTS_CACHE_ID = "*"
+
+
+async def _fetch_named_list(
+    client: HiBobClient, list_id: str, include_archived: bool, cache: NamedListCache
+) -> list[Any]:
+    key = (list_id, include_archived)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    items = _named_list_items(
+        await client.get(_named_list_path(list_id, include_archived))
+    )
+    cache.set(key, items)
+    return items
+
+
+async def _summarize_named_lists(
+    client: HiBobClient, include_archived: bool, cache: NamedListCache
+) -> list[dict[str, Any]]:
+    """Name and size of every list, from the combined endpoint."""
+    key = (ALL_LISTS_CACHE_ID, include_archived)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    suffix = "?includeArchived=true" if include_archived else ""
+    index = index_named_lists(await client.get(f"{NAMED_LISTS_PATH}{suffix}"))
+    summary = [
+        {"name": name, "items": count_list_items(items)}
+        for name, items in index.items()
+    ]
+    cache.set(key, summary)
+    return summary
+
+
 async def _resolve_named_lists(
-    client: HiBobClient, list_ids: set[str], include_archived: bool
+    client: HiBobClient,
+    list_ids: set[str],
+    include_archived: bool,
+    cache: NamedListCache,
 ) -> tuple[dict[str, list[Any]], list[str]]:
     """Fetch the named lists behind ``list_ids``, as an index by list name.
 
-    One call fetches every list; an ID missing from that response is then
-    fetched by name, in case the metadata's list IDs do not match the names in
-    the combined response. Failures become warnings rather than errors, since
-    a form without drop-down options is still worth returning.
+    Each list is fetched on its own, in parallel, unless the cache still holds
+    it. The combined named-lists endpoint is never used: it returns every list
+    in the company, which can run to tens of megabytes. Failures become
+    warnings rather than errors, since a form without drop-down options is
+    still worth returning.
     """
-    suffix = "?includeArchived=true" if include_archived else ""
-    warnings: list[str] = []
+    ordered = sorted(list_ids)
+    results = await asyncio.gather(
+        *(
+            _fetch_named_list(client, list_id, include_archived, cache)
+            for list_id in ordered
+        ),
+        return_exceptions=True,
+    )
     index: dict[str, list[Any]] = {}
-    try:
-        index = index_named_lists(await client.get(f"{NAMED_LISTS_PATH}{suffix}"))
-    except HiBobApiError as exc:
-        warnings.append(f"Could not fetch the company named lists: {exc}")
-    for list_id in sorted(list_ids):
-        if lookup_named_list(index, list_id) is not None:
-            continue
-        try:
-            payload = await client.get(f"{NAMED_LISTS_PATH}/{list_id}{suffix}")
-        except HiBobApiError as exc:
+    warnings: list[str] = []
+    for list_id, result in zip(ordered, results, strict=True):
+        if isinstance(result, HiBobApiError):
             warnings.append(
                 f"List {list_id!r} could not be fetched, so its field has no "
-                f"options: {exc}"
+                f"options: {result}"
             )
-            continue
-        items = payload.get("items") if isinstance(payload, dict) else payload
-        index[list_id] = items if isinstance(items, list) else []
+        elif isinstance(result, BaseException):
+            raise result
+        else:
+            index[list_id] = result
     return index, warnings
 
 
@@ -289,11 +363,14 @@ def _paged_search_result(payload: Any, entries_key: str) -> dict[str, Any]:
         # Tolerate a bare list, as the position search endpoint returns.
         entries: Any = payload
         metadata: Any = None
+    elif isinstance(payload, dict):
+        # HiBob's live API keys the entries as "values"; its reference documents
+        # a per-object key such as "positionOpeningEntries" instead. Accept both.
+        entries = payload.get("values", payload.get(entries_key))
+        metadata = payload.get("response_metadata")
     else:
-        entries = payload.get(entries_key) if isinstance(payload, dict) else None
-        metadata = (
-            payload.get("response_metadata") if isinstance(payload, dict) else None
-        )
+        entries = None
+        metadata = None
     next_cursor = metadata.get("next_cursor") if isinstance(metadata, dict) else None
 
     flattened = flatten_search_entries(entries)
@@ -311,12 +388,16 @@ def register_workforce_planning_tools(
     *,
     read_only: bool = False,
     client_factory: Any = get_client,
+    list_cache: NamedListCache | None = None,
 ) -> None:
     """Register workforce planning tools on ``mcp``.
 
     When ``read_only`` is true only the read tools are registered, so a
     deployment can expose planning data without any ability to change it.
+    Named lists are cached in ``list_cache`` (a fresh five-minute cache by
+    default) across the form and named-list tools.
     """
+    cache = list_cache if list_cache is not None else NamedListCache()
 
     def client() -> HiBobClient:
         return client_factory()
@@ -388,6 +469,45 @@ def register_workforce_planning_tools(
                 )
             ),
         ] = "position",
+        department: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Position form only: the department the position belongs to, "
+                    "as a name or list item ID. Ask the user for this before "
+                    "calling; it narrows the manager and job profile choices."
+                )
+            ),
+        ] = None,
+        job_profile: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Position form only: a rough description of the role, such as "
+                    "a job title. Ask the user for this before calling."
+                )
+            ),
+        ] = None,
+        manager: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Position form only: who the position reports to, as the "
+                    "manager's name, their position name (P-...) or position ID. "
+                    "Usually known from the conversation."
+                )
+            ),
+        ] = None,
+        max_options: Annotated[
+            int,
+            Field(
+                description=(
+                    "Most options to inline per field. A Slack select allows 100."
+                ),
+                ge=1,
+                le=1000,
+            ),
+        ] = MAX_OPTIONS_PER_LIST,
         include_archived_list_items: Annotated[
             bool,
             Field(
@@ -406,8 +526,18 @@ def register_workforce_planning_tools(
         drop-down options and the IDs to submit. Fields that are not backed
         by a list come with their documented allowed values, and every field
         says whether it is required. Fields HiBob sets itself are listed
-        separately so they are not mistaken for inputs. A list longer than
-        100 items is truncated, and the field then says how to fetch the rest.
+        separately so they are not mistaken for inputs.
+
+        A form must be complete when it is generated, so every field's
+        options are inlined, at most max_options each. Job profiles and
+        manager positions are far larger than that, so for a position form
+        ask the user first which department the position is in, roughly what
+        the role is (a job title), and who it reports to, and pass those as
+        department, job_profile and manager. They narrow those fields to the
+        matching choices, and an unambiguous answer pre-fills the field. If a
+        field still cannot be offered in full, the response carries
+        "questions" instead of "sections": ask them, then call again with the
+        answers.
 
         Use this before hibob_create_position, hibob_create_position_opening
         or hibob_create_position_budget. It replaces a chain of
@@ -415,23 +545,32 @@ def register_workforce_planning_tools(
 
         Args:
             object_type: 'position', 'positionOpening' or 'positionBudget'.
+            department: Department name or ID (position form only).
+            job_profile: Rough role description or title (position form only).
+            manager: Manager's name, position name or ID (position form only).
+            max_options: Most options to inline per field.
             include_archived_list_items: Include archived list items.
 
         Returns:
             str: JSON {"form": str, "submit_with": str, "instructions": [str],
             "sections": [{"object_type", "role", "argument", "required_fields",
             "fields": [{"id", "name", "type", "required", "options" or
-            "allowed_values", ...}], "read_only_fields": [...]}], "warnings":
-            [str]}, or an error message beginning with "Error:".
+            "allowed_values", "value"?, ...}], "read_only_fields": [...]}],
+            "warnings": [str]}; or, when more is needed first, {"form",
+            "submit_with", "questions": [{"field", "argument", "ask",
+            "candidates"?}], "note"}; or an error message beginning with
+            "Error:".
 
         Examples:
-            - "I want to plan a new engineering position" ->
-              object_type='position'
+            - "I want to plan a new engineering position" -> ask which
+              department, what role and who it reports to, then
+              object_type='position', department='Engineering',
+              job_profile='backend engineer', manager='Jane Doe'
             - "Add another opening to position 4821" ->
               object_type='positionOpening'
 
         Rate limit: metadata 50 requests/minute; one metadata request per
-        section plus one named-lists request.
+        section plus one named-lists request per list a field draws from.
         """
         try:
             layout = FORM_LAYOUTS[object_type]
@@ -444,22 +583,47 @@ def register_workforce_planning_tools(
             list_ids = collect_list_ids(*metadata)
             if list_ids:
                 named_lists, warnings = await _resolve_named_lists(
-                    api, list_ids, include_archived_list_items
+                    api, list_ids, include_archived_list_items, cache
                 )
-            sections = [
-                build_form_section(
-                    section_type, payload, named_lists, role=role, argument=argument
+            overrides: dict[str, dict[str, Any]] = {}
+            questions: list[dict[str, Any]] = []
+            if object_type == OBJECT_TYPE_POSITION:
+                overrides, questions = narrow_position_lists(
+                    metadata[0],
+                    named_lists,
+                    department=department,
+                    job_profile=job_profile,
+                    manager=manager,
+                    max_options=max_options,
                 )
-                for (section_type, role, argument), payload in zip(
-                    layout, metadata, strict=True
-                )
-            ]
             result: dict[str, Any] = {
                 "form": object_type,
                 "submit_with": FORM_SUBMIT_TOOLS[object_type],
-                "instructions": list(FORM_INSTRUCTIONS),
-                "sections": sections,
             }
+            if questions:
+                result["questions"] = questions
+                result["note"] = (
+                    "Ask the user these questions, then call again passing the "
+                    "answers as the named arguments to get the form."
+                )
+            else:
+                result["instructions"] = list(FORM_INSTRUCTIONS)
+                result["sections"] = [
+                    build_form_section(
+                        section_type,
+                        payload,
+                        named_lists,
+                        role=role,
+                        argument=argument,
+                        max_options=max_options,
+                        overrides=overrides
+                        if section_type == OBJECT_TYPE_POSITION
+                        else None,
+                    )
+                    for (section_type, role, argument), payload in zip(
+                        layout, metadata, strict=True
+                    )
+                ]
             if warnings:
                 result["warnings"] = warnings
             return _dump(result)
@@ -481,8 +645,8 @@ def register_workforce_planning_tools(
             str | None,
             Field(
                 description=(
-                    "Optional single list to fetch, e.g. 'department' or 'site'. "
-                    "Omit to return every named list."
+                    "List to fetch, e.g. 'department' or 'site'. Omit to get only "
+                    "the names and sizes of every list."
                 )
             ),
         ] = None,
@@ -496,35 +660,56 @@ def register_workforce_planning_tools(
             ),
         ] = False,
     ) -> str:
-        """Look up the allowed values of HiBob's named lists.
+        """Look up the items of a HiBob named list, or see which lists exist.
 
         Position fields such as department, site and employment type must be
         set to a list item from HiBob's named lists rather than to free text.
-        This tool resolves those names to the IDs that hibob_create_position
-        and hibob_update_position expect.
+        With a list_name this returns that list's items and the IDs that
+        hibob_create_position and hibob_update_position expect. Without one it
+        returns only the name and size of every list, because the full
+        contents of every list can run to tens of megabytes.
 
         Args:
-            list_name: A single list to fetch, or None for all lists.
+            list_name: The list to fetch, or None to list the available lists.
             include_archived: Include archived items.
 
         Returns:
-            str: JSON mapping list names to their items, each with an ID and a
-            display name.
+            str: With list_name, JSON {"name": str, "count": int, "items":
+            [{"id", "name", "archived"?, "children"?}]}. Without it, JSON
+            {"count": int, "lists": [{"name": str, "items": int}], "note":
+            str}. Errors are a message beginning with "Error:".
 
         Examples:
             - "Which departments exist?" -> list_name='department'
+            - "What lists does HiBob have?" -> no arguments
             - Use before hibob_create_position to turn "Engineering" into its
               list item ID.
             - Use when hibob_get_workforce_form reports a field's options as
               truncated, to fetch that list in full.
         """
         try:
-            path = NAMED_LISTS_PATH
-            if list_name:
-                path = f"{NAMED_LISTS_PATH}/{list_name.strip()}"
-            if include_archived:
-                path = f"{path}?includeArchived=true"
-            return _dump(await client().get(path))
+            api = client()
+            if list_name and list_name.strip():
+                name = list_name.strip()
+                items = await _fetch_named_list(api, name, include_archived, cache)
+                return _dump(
+                    {
+                        "name": name,
+                        "count": count_list_items(items),
+                        "items": shape_list_items(items),
+                    }
+                )
+            lists = await _summarize_named_lists(api, include_archived, cache)
+            return _dump(
+                {
+                    "count": len(lists),
+                    "lists": lists,
+                    "note": (
+                        "Call again with list_name to get a list's items and the "
+                        "IDs to submit."
+                    ),
+                }
+            )
         except Exception as exc:
             return format_exception(exc)
 
@@ -791,6 +976,133 @@ def register_workforce_planning_tools(
                     "last page, so some openings may be missing. Narrow the scan "
                     "with 'statuses'."
                 )
+            return _dump(result)
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_get_positions_under",
+        annotations=ToolAnnotations(
+            title="Get HiBob positions under a position",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_get_positions_under(
+        position: Annotated[
+            str,
+            Field(
+                description=(
+                    "The position at the top: a position ID, a position name such "
+                    "as 'P-0000000157', the HiBob employee ID of the person holding "
+                    "it, or that person's name."
+                ),
+                min_length=1,
+            ),
+        ],
+        depth: Annotated[
+            int | None,
+            Field(
+                description=(
+                    "How many levels down to include; 1 for direct reports only. "
+                    "Omit for every level."
+                ),
+                ge=1,
+            ),
+        ] = None,
+        statuses: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Only return positions in these statuses (filled, vacant, "
+                    "starting, ...). The tree is still walked in full, so the "
+                    "shape reported stays right."
+                )
+            ),
+        ] = None,
+    ) -> str:
+        """List the positions that report up to a position.
+
+        Answers "which positions are under me, and which are filled?". HiBob
+        cannot filter positions by manager or by holder, so this fetches every
+        position in one search and walks the reporting tree here. The top
+        position is found by ID, by position name, by the holder's employee
+        ID or by the holder's name; a name that fits several people returns
+        candidates instead. Everything beneath it is then listed depth first,
+        each position with its status (filled, vacant, starting), who fills
+        it, and its own manager position so the tree can be redrawn.
+
+        Args:
+            position: Position ID, position name, employee ID or holder's name.
+            depth: Levels to include; 1 for direct reports. None for all.
+            statuses: Keep only these statuses in the listing.
+
+        Returns:
+            str: JSON {"root": {...}, "resolved_by": str, "count": int,
+            "direct_reports": int, "max_depth": int, "counts_by_status":
+            {status: int}, "positions": [{"id", "name", "status", "holder",
+            "holder_id", "department", "job_profile", "site",
+            "manager_position_id", "has_open_requests", "depth"}]}; or
+            {"query", "candidates": [...], "note"} when several positions
+            match; or an error message beginning with "Error:".
+
+        Examples:
+            - "Which positions are under me?" -> position='<the user's name or
+              HiBob employee ID>'
+            - "Which of Anna's positions are vacant?" ->
+              position='Anna Serafin Valle', statuses=['vacant']
+            - For the openings behind the listed positions, pass their IDs to
+              hibob_get_openings_for_positions.
+
+        Rate limit: 100 requests/minute; this uses one.
+        """
+        try:
+            body = _search_body(
+                list(HIERARCHY_FIELDS), [MATCH_ALL_POSITIONS_FILTER], True
+            )
+            payload = await client().search(POSITION_SEARCH_PATH, body)
+            if isinstance(payload, dict):
+                payload = payload.get("values")
+            rows = payload if isinstance(payload, list) else []
+            positions = [shape_position(row) for row in rows if isinstance(row, dict)]
+            matches, resolved_by = resolve_root(positions, position)
+            if not matches:
+                raise ValueError(
+                    f"No position matches {position!r}. Give a position ID, a "
+                    "position name such as 'P-0000000157', the holder's HiBob "
+                    "employee ID, or the holder's name as it appears in HiBob."
+                )
+            if len(matches) > 1:
+                return _dump(
+                    {
+                        "query": position,
+                        "candidates": matches,
+                        "note": (
+                            "Several positions match; call again with the "
+                            "position ID of the one meant."
+                        ),
+                    }
+                )
+            root = matches[0]
+            entries = positions_under(positions, root["id"], depth=depth)
+            shape = summarize_tree(entries)
+            if statuses:
+                wanted = {status.strip().lower() for status in statuses}
+                entries = [
+                    entry
+                    for entry in entries
+                    if str(entry.get("status", "")).lower() in wanted
+                ]
+            result: dict[str, Any] = {
+                "root": root,
+                "resolved_by": resolved_by,
+                "count": len(entries),
+                **shape,
+                "counts_by_status": counts_by_status(entries),
+                "positions": entries,
+            }
             return _dump(result)
         except Exception as exc:
             return format_exception(exc)

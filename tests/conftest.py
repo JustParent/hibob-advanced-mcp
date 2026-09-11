@@ -11,6 +11,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 from hibob_advanced_mcp import client as client_module
+from hibob_advanced_mcp.cache import NamedListCache
 from hibob_advanced_mcp.client import HiBobClient
 from hibob_advanced_mcp.config import (
     ENV_API_HOST,
@@ -64,10 +65,15 @@ def client(recorded_sleeps: list[float]) -> HiBobClient:
 def server_factory(client: HiBobClient):
     """Build a server whose tools talk to the test client."""
 
-    def build(read_only: bool = False) -> FastMCP:
+    def build(
+        read_only: bool = False, list_cache: NamedListCache | None = None
+    ) -> FastMCP:
         mcp = FastMCP("hibob_advanced_mcp_test")
         register_workforce_planning_tools(
-            mcp, read_only=read_only, client_factory=lambda: client
+            mcp,
+            read_only=read_only,
+            client_factory=lambda: client,
+            list_cache=list_cache,
         )
         return mcp
 
