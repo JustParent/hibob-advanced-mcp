@@ -25,7 +25,7 @@ Read-only use still needs the same grant — HiBob does not offer a narrower wor
 | `HIBOB_SERVICE_USER_ID` | yes | Service user ID (the Basic auth username). |
 | `HIBOB_SERVICE_USER_TOKEN` | yes | Service user token (the Basic auth password). |
 | `HIBOB_API_HOST` | no | Defaults to production (`api.hibob.com`). Set `api.sandbox.hibob.com` for HiBob's sandbox. A pasted URL such as `https://api.sandbox.hibob.com/v1` is accepted; only the hostname is used. |
-| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the five read tools; the eight write tools are not exposed at all. |
+| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the seven read tools; the eight write tools are not exposed at all. |
 
 Standard proxy variables (`HTTPS_PROXY`, `ALL_PROXY`) are honoured. A SOCKS5 proxy needs the optional `socks` extra — see the install line below.
 
@@ -107,12 +107,19 @@ Field IDs are passed as flat mappings, for example `{"/position/fte": 100}`. The
 | Tool | HiBob endpoint | Rate limit |
 | --- | --- | --- |
 | `hibob_list_workforce_fields` | metadata for `position`, `positionOpening` or `positionBudget` | 50/min |
+| `hibob_get_workforce_form` | metadata for each section of the form, plus `GET /company/named-lists` | 50/min |
 | `hibob_get_company_named_lists` | `GET /company/named-lists` | — |
 | `hibob_search_positions` | `POST /objects/position/search` | 100/min |
 | `hibob_search_position_openings` | `POST /positions/position-openings/search` | 100/min |
+| `hibob_get_openings_for_positions` | `POST /positions/position-openings/search`, every page | 100/min |
 | `hibob_search_position_budgets` | `POST /positions/position-budget/search` | 100/min |
 
 Search results come back as `{"count": N, "entries": [{"values": {...}, "display": {...}}]}`. `values` holds the raw values including the IDs the write tools need; `display` holds HiBob's human-readable labels. The opening and budget searches are cursor-paginated and return `has_more` and `next_cursor`; **position search has no pagination**, so request only the fields you need and filter where you can.
+
+Two of the read tools do work HiBob's API cannot do in one request:
+
+- **`hibob_get_openings_for_positions`** answers "which openings belong to this position?". HiBob's opening search only filters by an opening's own ID, status or name, never by its parent position. The tool sends a filter every opening satisfies (`/positionOpening/id notEqual "0"`, an ID HiBob never assigns), pages through every opening 100 at a time, and joins on `/positionOpening/positionId` in memory. Pass several position IDs at once to pay for the scan once; a `statuses` filter is applied by HiBob and shortens it. The result reports `counts_by_position`, so a position with no openings shows as `0`, and `scan_complete`, which is false only if the scan hit its 10,000-opening safety cap.
+- **`hibob_get_workforce_form`** returns everything needed to fill in a create form as one blob: for `position` (the default) that is the position's fields plus the nested opening (required) and budget (optional) sections; for `positionOpening` or `positionBudget` just that object. Every list-backed field (department, site, job profile, currency, ...) arrives with its `options` resolved from the company's named lists, including the `id` to submit; fields with a fixed vocabulary (position type, recruitment status, pay periods) carry `allowed_values`; each field says whether it is `required`, and fields HiBob sets itself are listed separately as `read_only_fields`. Each section names the write tool argument it maps to (`position_fields`, `opening_fields`, `budget_fields` or `fields`), so the filled-in form can be passed straight to the create tool.
 
 ### Write (omitted when `HIBOB_READ_ONLY` is set)
 
@@ -145,7 +152,7 @@ Updatable on a position: `name`, `effectiveDate`, `managerPositionId`, `position
 
 Filterable fields: `/position/status`, `/position/name`, `/position/hasOpenRequests`, `/position/id`; `/positionOpening/id`, `/positionOpening/status` (`vacant`, `starting`, `filled`, `departing`), `/positionOpening/positionOpeningName`.
 
-Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. Resolve them with `hibob_get_company_named_lists` before creating or updating a position.
+Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. `hibob_get_workforce_form` returns those IDs alongside each field; `hibob_get_company_named_lists` returns the raw lists.
 
 ## Development
 

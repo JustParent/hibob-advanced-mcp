@@ -174,7 +174,21 @@ def flatten_search_entry(entry: dict[str, Any]) -> dict[str, Any]:
 
 
 def flatten_search_entries(entries: Any) -> list[dict[str, Any]]:
-    """Flatten a list of search result entries."""
+    """Flatten a list of search result entries.
+
+    HiBob's API reference declares the opening and budget entries as a list
+    of lists, so one level of nesting is unwrapped as well.
+    """
     if not isinstance(entries, list):
         return []
-    return [flatten_search_entry(entry) for entry in entries if isinstance(entry, dict)]
+    flattened: list[dict[str, Any]] = []
+    for entry in entries:
+        if isinstance(entry, dict):
+            flattened.append(flatten_search_entry(entry))
+        elif isinstance(entry, list):
+            flattened.extend(
+                flatten_search_entry(inner)
+                for inner in entry
+                if isinstance(inner, dict)
+            )
+    return flattened

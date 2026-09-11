@@ -7,6 +7,7 @@ domains can be added as sibling modules.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Annotated, Any, Literal
 
@@ -24,7 +25,15 @@ from .envelopes import (
     validate_allowed_keys,
     validate_required_keys,
 )
-from .errors import format_exception
+from .errors import HiBobApiError, format_exception
+from .forms import (
+    FORM_INSTRUCTIONS,
+    REQUIRED_FIELDS,
+    build_form_section,
+    collect_list_ids,
+    index_named_lists,
+    lookup_named_list,
+)
 
 # Endpoint paths, relative to the versioned API base.
 POSITION_METADATA_PATH = "/metadata/objects/position"
@@ -44,18 +53,9 @@ METADATA_PATHS = {
     OBJECT_TYPE_BUDGET: BUDGET_METADATA_PATH,
 }
 
-REQUIRED_POSITION_FIELDS = {
-    "/position/effectiveDate",
-    "/position/fte",
-    "/position/department",
-    "/position/site",
-    "/position/jobProfile",
-}
-REQUIRED_OPENING_FIELDS = {"/positionOpening/expectedStartDate"}
-REQUIRED_BUDGET_FIELDS = {
-    "/positionBudget/salaryPayPeriod",
-    "/positionBudget/currency",
-}
+REQUIRED_POSITION_FIELDS = set(REQUIRED_FIELDS[OBJECT_TYPE_POSITION])
+REQUIRED_OPENING_FIELDS = set(REQUIRED_FIELDS[OBJECT_TYPE_OPENING])
+REQUIRED_BUDGET_FIELDS = set(REQUIRED_FIELDS[OBJECT_TYPE_BUDGET])
 
 UPDATABLE_POSITION_FIELDS = {
     "/position/name",
@@ -71,6 +71,48 @@ UPDATABLE_POSITION_FIELDS = {
 }
 
 ObjectTypeLiteral = Literal["position", "positionOpening", "positionBudget"]
+OpeningStatusLiteral = Literal["vacant", "starting", "filled", "departing"]
+
+OPENING_ID_FIELD = "/positionOpening/id"
+OPENING_POSITION_ID_FIELD = "/positionOpening/positionId"
+OPENING_STATUS_FIELD = "/positionOpening/status"
+
+# What hibob_get_openings_for_positions returns when no fields are requested.
+DEFAULT_OPENING_FIELDS = (
+    OPENING_ID_FIELD,
+    OPENING_POSITION_ID_FIELD,
+    "/positionOpening/positionOpeningName",
+    "/positionOpening/status",
+    "/positionOpening/recruitmentStatus",
+    "/positionOpening/expectedStartDate",
+    "/positionOpening/actualStartDate",
+    "/positionOpening/filledBy",
+)
+
+# HiBob's opening search cannot filter by position, so openings are fetched
+# in full and joined on positionId here. Rather than rely on HiBob accepting
+# an empty filter list, the scan sends a clause every opening satisfies: an
+# ID HiBob never assigns, so no real opening is excluded.
+IMPOSSIBLE_OPENING_ID = "0"
+OPENING_SCAN_PAGE_SIZE = 100
+# Bounds a scan at 10,000 openings, so a paging fault cannot loop forever.
+MAX_OPENING_SCAN_PAGES = 100
+
+# Sections of each form: (object type, role, argument of the submit tool).
+FORM_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
+    OBJECT_TYPE_POSITION: (
+        (OBJECT_TYPE_POSITION, "primary", "position_fields"),
+        (OBJECT_TYPE_OPENING, "nested_required", "opening_fields"),
+        (OBJECT_TYPE_BUDGET, "nested_optional", "budget_fields"),
+    ),
+    OBJECT_TYPE_OPENING: ((OBJECT_TYPE_OPENING, "primary", "fields"),),
+    OBJECT_TYPE_BUDGET: ((OBJECT_TYPE_BUDGET, "primary", "fields"),),
+}
+FORM_SUBMIT_TOOLS = {
+    OBJECT_TYPE_POSITION: "hibob_create_position",
+    OBJECT_TYPE_OPENING: "hibob_create_position_opening",
+    OBJECT_TYPE_BUDGET: "hibob_create_position_budget",
+}
 
 
 class SearchFilter(BaseModel):
@@ -102,8 +144,115 @@ class SearchFilter(BaseModel):
         }
 
 
+MATCH_ALL_OPENINGS_FILTER = SearchFilter(
+    field_id=OPENING_ID_FIELD, operator="notEqual", values=[IMPOSSIBLE_OPENING_ID]
+)
+
+
 def _dump(payload: Any) -> str:
     return json.dumps(payload, indent=2, default=str)
+
+
+def _normalize_id(value: Any) -> str:
+    """Render an ID the way HiBob's JSON does, so ints and strings compare."""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value).strip()
+
+
+def _normalize_position_ids(position_ids: list[str | int]) -> list[str]:
+    """Deduplicate the requested position IDs, rejecting blanks."""
+    normalized: list[str] = []
+    for raw in position_ids:
+        value = _normalize_id(raw)
+        if not value:
+            raise ValueError("Position IDs cannot be empty.")
+        if value not in normalized:
+            normalized.append(value)
+    return normalized
+
+
+def _openings_for_positions(
+    entries: list[dict[str, Any]], position_ids: list[str]
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Keep the openings whose positionId is one of ``position_ids``.
+
+    Returns the matching entries and a count per requested position, so a
+    position with no openings is reported as 0 rather than going missing.
+    """
+    counts = {position_id: 0 for position_id in position_ids}
+    matched: list[dict[str, Any]] = []
+    for entry in entries:
+        values = entry.get("values")
+        if not isinstance(values, dict):
+            continue
+        key = _normalize_id(values.get(OPENING_POSITION_ID_FIELD))
+        if key in counts:
+            counts[key] += 1
+            matched.append(entry)
+    return matched, counts
+
+
+async def _scan_openings(
+    client: HiBobClient, body: dict[str, Any]
+) -> tuple[list[dict[str, Any]], bool]:
+    """Page through every opening that ``body``'s filters match.
+
+    Returns the flattened entries and whether the last page was reached. A
+    repeated cursor or the page cap ends the scan early rather than looping.
+    """
+    entries: list[dict[str, Any]] = []
+    seen_cursors: set[str] = set()
+    cursor: str | None = None
+    for _ in range(MAX_OPENING_SCAN_PAGES):
+        pagination: dict[str, Any] = {"limit": OPENING_SCAN_PAGE_SIZE}
+        if cursor:
+            pagination["cursor"] = cursor
+        payload = await client.search(
+            OPENING_SEARCH_PATH, {**body, "pagination": pagination}
+        )
+        page = _paged_search_result(payload, "positionOpeningEntries")
+        entries.extend(page["entries"])
+        cursor = page.get("next_cursor")
+        if not cursor:
+            return entries, True
+        if cursor in seen_cursors:
+            return entries, False
+        seen_cursors.add(cursor)
+    return entries, False
+
+
+async def _resolve_named_lists(
+    client: HiBobClient, list_ids: set[str], include_archived: bool
+) -> tuple[dict[str, list[Any]], list[str]]:
+    """Fetch the named lists behind ``list_ids``, as an index by list name.
+
+    One call fetches every list; an ID missing from that response is then
+    fetched by name, in case the metadata's list IDs do not match the names in
+    the combined response. Failures become warnings rather than errors, since
+    a form without drop-down options is still worth returning.
+    """
+    suffix = "?includeArchived=true" if include_archived else ""
+    warnings: list[str] = []
+    index: dict[str, list[Any]] = {}
+    try:
+        index = index_named_lists(await client.get(f"{NAMED_LISTS_PATH}{suffix}"))
+    except HiBobApiError as exc:
+        warnings.append(f"Could not fetch the company named lists: {exc}")
+    for list_id in sorted(list_ids):
+        if lookup_named_list(index, list_id) is not None:
+            continue
+        try:
+            payload = await client.get(f"{NAMED_LISTS_PATH}/{list_id}{suffix}")
+        except HiBobApiError as exc:
+            warnings.append(
+                f"List {list_id!r} could not be fetched, so its field has no "
+                f"options: {exc}"
+            )
+            continue
+        items = payload.get("items") if isinstance(payload, dict) else payload
+        index[list_id] = items if isinstance(items, list) else []
+    return index, warnings
 
 
 def _serialize_filters(filters: list[SearchFilter] | None) -> list[dict[str, Any]]:
@@ -204,14 +353,112 @@ def register_workforce_planning_tools(
         Examples:
             - "What can I set on a position?" -> object_type='position'
             - "What does a budget need?" -> object_type='positionBudget'
-            - Don't use when: you need the allowed values of a list field such
-              as department or site (use hibob_get_company_named_lists).
+            - Don't use when: you are about to create something and need the
+              fields together with their allowed values (use
+              hibob_get_workforce_form, which also resolves the named lists).
 
         Rate limit: 50 requests/minute.
         """
         try:
             path = METADATA_PATHS[object_type]
             return _dump(await client().get(path))
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_get_workforce_form",
+        annotations=ToolAnnotations(
+            title="Get a HiBob workforce planning form",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_get_workforce_form(
+        object_type: Annotated[
+            ObjectTypeLiteral,
+            Field(
+                description=(
+                    "Which object the form is for. 'position' also includes the "
+                    "nested opening (required) and budget (optional) sections."
+                )
+            ),
+        ] = "position",
+        include_archived_list_items: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Also list archived list items. HiBob does not accept them "
+                    "in new records, so leave this off for a create form."
+                )
+            ),
+        ] = False,
+    ) -> str:
+        """Get everything needed to fill in a create form, in one call.
+
+        Joins the object's field metadata (for a position: also its nested
+        opening and budget) with the company's named lists, so every list
+        field such as department, site or job profile arrives with its
+        drop-down options and the IDs to submit. Fields that are not backed
+        by a list come with their documented allowed values, and every field
+        says whether it is required. Fields HiBob sets itself are listed
+        separately so they are not mistaken for inputs.
+
+        Use this before hibob_create_position, hibob_create_position_opening
+        or hibob_create_position_budget. It replaces a chain of
+        hibob_list_workforce_fields and hibob_get_company_named_lists calls.
+
+        Args:
+            object_type: 'position', 'positionOpening' or 'positionBudget'.
+            include_archived_list_items: Include archived list items.
+
+        Returns:
+            str: JSON {"form": str, "submit_with": str, "instructions": [str],
+            "sections": [{"object_type", "role", "argument", "required_fields",
+            "fields": [{"id", "name", "type", "required", "options" or
+            "allowed_values", ...}], "read_only_fields": [...]}], "warnings":
+            [str]}, or an error message beginning with "Error:".
+
+        Examples:
+            - "I want to plan a new engineering position" ->
+              object_type='position'
+            - "Add another opening to position 4821" ->
+              object_type='positionOpening'
+
+        Rate limit: metadata 50 requests/minute; one metadata request per
+        section plus one named-lists request.
+        """
+        try:
+            layout = FORM_LAYOUTS[object_type]
+            api = client()
+            metadata = await asyncio.gather(
+                *(api.get(METADATA_PATHS[kind]) for kind, _, _ in layout)
+            )
+            named_lists: dict[str, list[Any]] = {}
+            warnings: list[str] = []
+            list_ids = collect_list_ids(*metadata)
+            if list_ids:
+                named_lists, warnings = await _resolve_named_lists(
+                    api, list_ids, include_archived_list_items
+                )
+            sections = [
+                build_form_section(
+                    section_type, payload, named_lists, role=role, argument=argument
+                )
+                for (section_type, role, argument), payload in zip(
+                    layout, metadata, strict=True
+                )
+            ]
+            result: dict[str, Any] = {
+                "form": object_type,
+                "submit_with": FORM_SUBMIT_TOOLS[object_type],
+                "instructions": list(FORM_INSTRUCTIONS),
+                "sections": sections,
+            }
+            if warnings:
+                result["warnings"] = warnings
+            return _dump(result)
         except Exception as exc:
             return format_exception(exc)
 
@@ -361,7 +608,9 @@ def register_workforce_planning_tools(
                 description=(
                     "Optional filters. Filterable fields: '/positionOpening/id', "
                     "'/positionOpening/status' (vacant, starting, filled, "
-                    "departing), '/positionOpening/positionOpeningName'."
+                    "departing), '/positionOpening/positionOpeningName'. HiBob "
+                    "cannot filter by '/positionOpening/positionId'; use "
+                    "hibob_get_openings_for_positions for that."
                 )
             ),
         ] = None,
@@ -401,6 +650,9 @@ def register_workforce_planning_tools(
         Examples:
             - "Which openings are still vacant?" -> filters=[{field_id:
               '/positionOpening/status', operator: 'equals', values: ['vacant']}]
+            - Don't use when: you want the openings of a particular position
+              (use hibob_get_openings_for_positions, since HiBob cannot filter
+              openings by position).
 
         Rate limit: 100 requests/minute.
         """
@@ -412,6 +664,116 @@ def register_workforce_planning_tools(
             body["pagination"] = pagination
             payload = await client().search(OPENING_SEARCH_PATH, body)
             return _dump(_paged_search_result(payload, "positionOpeningEntries"))
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_get_openings_for_positions",
+        annotations=ToolAnnotations(
+            title="Get HiBob openings for positions",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_get_openings_for_positions(
+        position_ids: Annotated[
+            list[str | int],
+            Field(
+                description=(
+                    "One or more position IDs, as returned in '/position/id'."
+                ),
+                min_length=1,
+            ),
+        ],
+        fields: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Opening field IDs to return. '/positionOpening/id' and "
+                    "'/positionOpening/positionId' are always included. Defaults "
+                    "to the opening's name, status, recruitment status, expected "
+                    "and actual start dates and who fills it."
+                )
+            ),
+        ] = None,
+        statuses: Annotated[
+            list[OpeningStatusLiteral] | None,
+            Field(
+                description=(
+                    "Only return openings in these statuses (vacant, starting, "
+                    "filled, departing). Omit for every opening."
+                )
+            ),
+        ] = None,
+        include_human_readable: Annotated[
+            bool, Field(description="Also return display labels for each value.")
+        ] = True,
+    ) -> str:
+        """Get the openings that belong to one or more positions.
+
+        HiBob's opening search can only filter by an opening's own ID, status
+        or name, not by its parent position. This tool pages through every
+        opening in the company (100 per request) and keeps those whose
+        '/positionOpening/positionId' matches, doing the join here instead of
+        in HiBob. Pass several position IDs at once to pay for that scan only
+        once; a status filter is applied by HiBob and shortens it.
+
+        Args:
+            position_ids: Position IDs to look up, from '/position/id'.
+            fields: Opening field IDs to return; the join fields are always
+                added.
+            statuses: Restrict to these opening statuses.
+            include_human_readable: Include display labels alongside raw values.
+
+        Returns:
+            str: JSON {"count": int, "entries": [{"values": {...}, "display":
+            {...}}], "counts_by_position": {"<position id>": int},
+            "openings_scanned": int, "scan_complete": bool}, or an error
+            message beginning with "Error:". Every entry carries
+            '/positionOpening/positionId', so entries can be grouped by
+            position; a position with no openings has a count of 0.
+
+        Examples:
+            - "Which openings does position 4821 have?" -> position_ids=['4821']
+            - "Vacant openings under positions 12 and 15" ->
+              position_ids=['12', '15'], statuses=['vacant']
+            - Don't use when: filtering openings by their own status or name
+              across the company (use hibob_search_position_openings).
+
+        Rate limit: 100 requests/minute; this uses one request per 100
+        openings in the company.
+        """
+        try:
+            wanted = _normalize_position_ids(position_ids)
+            requested = list(fields) if fields else list(DEFAULT_OPENING_FIELDS)
+            search_fields = list(
+                dict.fromkeys([OPENING_ID_FIELD, OPENING_POSITION_ID_FIELD, *requested])
+            )
+            if statuses:
+                filters = [
+                    SearchFilter(field_id=OPENING_STATUS_FIELD, values=list(statuses))
+                ]
+            else:
+                filters = [MATCH_ALL_OPENINGS_FILTER]
+            body = _search_body(search_fields, filters, include_human_readable)
+            entries, complete = await _scan_openings(client(), body)
+            matched, counts = _openings_for_positions(entries, wanted)
+            result: dict[str, Any] = {
+                "count": len(matched),
+                "entries": matched,
+                "counts_by_position": counts,
+                "openings_scanned": len(entries),
+                "scan_complete": complete,
+            }
+            if not complete:
+                result["warning"] = (
+                    f"Stopped after {len(entries)} openings without reaching the "
+                    "last page, so some openings may be missing. Narrow the scan "
+                    "with 'statuses'."
+                )
+            return _dump(result)
         except Exception as exc:
             return format_exception(exc)
 
