@@ -7,6 +7,8 @@ naming the exact HiBob permission path when access is denied.
 
 from __future__ import annotations
 
+from urllib.parse import unquote
+
 import httpx
 
 from .config import ENV_SERVICE_USER_ID, ENV_SERVICE_USER_TOKEN
@@ -58,6 +60,18 @@ def _parse_error_body(response: httpx.Response) -> tuple[str | None, str | None]
     return None, None
 
 
+NAMED_LISTS_PATH_PREFIX = "/company/named-lists/"
+
+
+def _named_list_from_path(path: str) -> str | None:
+    """The list name in a single-named-list request path, if that is what it is."""
+    _, marker, rest = path.partition(NAMED_LISTS_PATH_PREFIX)
+    if not marker:
+        return None
+    name = unquote(rest.split("/", 1)[0]).strip()
+    return name or None
+
+
 def _retry_after_seconds(response: httpx.Response) -> str:
     value = response.headers.get("Retry-After", "").strip()
     return value or "a few"
@@ -87,6 +101,12 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             "HiBob denied access (403). Grant the service user's permission group: "
             f"{MANAGE_POSITIONS_PERMISSION_PATH}. If your HiBob account restricts "
             "API access by IP, also allow this server's outbound IP address."
+        )
+    elif status == 404 and (list_name := _named_list_from_path(path)):
+        message = (
+            f"HiBob has no named list called {list_name!r} (404). Call "
+            "hibob_get_company_named_lists without list_name to see the "
+            "available list names."
         )
     elif status == 404:
         message = (

@@ -14,11 +14,13 @@ from hibob_advanced_mcp.errors import (
 
 
 def _response(
-    status: int, json: dict | None = None, headers: dict | None = None, text: str = ""
+    status: int,
+    json: dict | None = None,
+    headers: dict | None = None,
+    text: str = "",
+    url: str = "https://api.hibob.com/v1/workforce-planning/positions/42",
 ) -> httpx.Response:
-    request = httpx.Request(
-        "GET", "https://api.hibob.com/v1/workforce-planning/positions/42"
-    )
+    request = httpx.Request("GET", url)
     if json is not None:
         return httpx.Response(status, json=json, headers=headers, request=request)
     return httpx.Response(status, text=text, headers=headers, request=request)
@@ -48,6 +50,22 @@ def test_404_points_at_the_search_tools() -> None:
     message = str(excinfo.value)
     assert "hibob_search_positions" in message
     assert "/workforce-planning/positions/42" in message
+
+
+def test_404_for_a_named_list_names_the_list_and_how_to_find_them() -> None:
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(
+            _response(
+                404,
+                {"error": "not found"},
+                url="https://api.hibob.com/v1/company/named-lists/noSuchList?includeArchived=true",
+            )
+        )
+    message = str(excinfo.value)
+    assert "no named list called 'noSuchList'" in message
+    assert "hibob_get_company_named_lists" in message
+    assert "list_name" in message
+    assert "hibob_search_positions" not in message
 
 
 def test_429_reports_retry_after_and_limits() -> None:

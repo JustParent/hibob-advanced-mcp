@@ -38,22 +38,86 @@ async def test_metadata_routes_per_object_type(
     assert position.called and opening.called and budget.called
 
 
-async def test_named_lists_fetches_all_or_one(
+async def test_named_lists_without_a_name_returns_only_names_and_sizes(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    """The combined endpoint can run to tens of megabytes, so the tool only
+    summarises it; items come from a single-list call."""
     all_lists = mock_api.get("/company/named-lists").mock(
-        return_value=httpx.Response(200, json={"department": {}})
-    )
-    one_list = mock_api.get("/company/named-lists/department").mock(
-        return_value=httpx.Response(200, json={"values": []})
+        return_value=httpx.Response(
+            200,
+            json={
+                "department": {
+                    "name": "department",
+                    "values": [{"id": 10, "name": "Engineering"}],
+                    "items": [{"id": 10, "name": "Engineering"}],
+                },
+                "site": {
+                    "name": "site",
+                    "items": [
+                        {
+                            "id": 20,
+                            "name": "UK",
+                            "children": [{"id": 21, "name": "London"}],
+                        }
+                    ],
+                },
+            },
+        )
     )
 
-    await call_tool(mcp_server, "hibob_get_company_named_lists")
-    await call_tool(
-        mcp_server, "hibob_get_company_named_lists", {"list_name": "department"}
+    text = await call_tool(mcp_server, "hibob_get_company_named_lists")
+    result = json.loads(text)
+
+    assert all_lists.call_count == 1
+    assert result["count"] == 2
+    assert result["lists"] == [
+        {"name": "department", "items": 1},
+        {"name": "site", "items": 2},
+    ]
+    assert "list_name" in result["note"]
+    assert "Engineering" not in text and "London" not in text
+
+
+async def test_named_lists_by_name_returns_shaped_items(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob echoes every item twice ("values" and "items"); only the fields a
+    caller needs to pick and submit an item are returned."""
+    mock_api.get("/company/named-lists/department").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "name": "department",
+                "values": [{"id": "10", "value": "Eng", "name": "Eng"}],
+                "items": [
+                    {
+                        "id": "10",
+                        "value": "Eng",
+                        "name": "Eng",
+                        "archived": False,
+                        "children": [],
+                    },
+                    {"id": "11", "value": "Old", "name": "Old", "archived": True},
+                ],
+            },
+        )
     )
 
-    assert all_lists.called and one_list.called
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_company_named_lists", {"list_name": "department"}
+        )
+    )
+
+    assert result == {
+        "name": "department",
+        "count": 2,
+        "items": [
+            {"id": "10", "name": "Eng"},
+            {"id": "11", "name": "Old", "archived": True},
+        ],
+    }
 
 
 async def test_named_lists_can_include_archived_items(
@@ -160,7 +224,7 @@ async def test_openings_search_sends_pagination_and_returns_cursor(
         return_value=httpx.Response(
             200,
             json={
-                "positionOpeningEntries": [{"/positionOpening/id": {"value": 9}}],
+                "values": [{"/positionOpening/id": {"value": 9}}],
                 "response_metadata": {"next_cursor": "abc123"},
             },
         )
@@ -186,9 +250,7 @@ async def test_openings_search_without_cursor_reports_no_more(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
     route = mock_api.post("/positions/position-openings/search").mock(
-        return_value=httpx.Response(
-            200, json={"positionOpeningEntries": [], "response_metadata": {}}
-        )
+        return_value=httpx.Response(200, json={"values": [], "response_metadata": {}})
     )
 
     result = json.loads(
@@ -227,7 +289,7 @@ async def test_budget_search_uses_budget_endpoint(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
     route = mock_api.post("/positions/position-budget/search").mock(
-        return_value=httpx.Response(200, json={"positionBudgetEntries": []})
+        return_value=httpx.Response(200, json={"values": []})
     )
 
     await call_tool(
@@ -264,3 +326,92 @@ async def test_permission_error_is_returned_as_guidance_not_traceback(
 
     assert result.startswith("Error:")
     assert "Manage positions" in result
+
+
+async def test_openings_search_reads_entries_from_values_key(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob's live API returns entries under "values", not the documented key."""
+    mock_api.post("/positions/position-openings/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "values": [
+                    {
+                        "/positionOpening/id": {"value": 13679213},
+                        "/positionOpening/status": {
+                            "value": "vacant",
+                            "humanReadable": "Vacant",
+                        },
+                    }
+                ],
+                "response_metadata": {"next_cursor": None},
+            },
+        )
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_position_openings",
+            {"fields": ["/positionOpening/id", "/positionOpening/status"]},
+        )
+    )
+
+    assert result["count"] == 1
+    assert result["entries"][0]["values"]["/positionOpening/id"] == 13679213
+    assert result["entries"][0]["display"]["/positionOpening/status"] == "Vacant"
+    assert result["has_more"] is False
+
+
+async def test_budget_search_reads_entries_from_values_key(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post("/positions/position-budget/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "values": [{"/positionBudget/id": {"value": 45155535}}],
+                "response_metadata": {"next_cursor": "page2"},
+            },
+        )
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_position_budgets",
+            {"fields": ["/positionBudget/id"]},
+        )
+    )
+
+    assert result["count"] == 1
+    assert result["entries"][0]["values"]["/positionBudget/id"] == 45155535
+    assert result["next_cursor"] == "page2"
+
+
+async def test_paged_search_accepts_documented_entries_key(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob's API reference documents "positionOpeningEntries" as a list of
+    lists; the live API uses "values", but the documented shape still parses."""
+    mock_api.post("/positions/position-openings/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "positionOpeningEntries": [[{"/positionOpening/id": {"value": 9}}]],
+                "response_metadata": {"next_cursor": None},
+            },
+        )
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_position_openings",
+            {"fields": ["/positionOpening/id"]},
+        )
+    )
+
+    assert result["count"] == 1
+    assert result["entries"][0]["values"]["/positionOpening/id"] == 9

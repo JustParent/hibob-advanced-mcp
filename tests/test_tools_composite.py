@@ -34,7 +34,7 @@ def _page(entries: list[Any], next_cursor: str | None = None) -> httpx.Response:
     return httpx.Response(
         200,
         json={
-            "positionOpeningEntries": entries,
+            "values": entries,
             "response_metadata": {"next_cursor": next_cursor},
         },
     )
@@ -278,14 +278,20 @@ BUDGET_METADATA = [
     _meta("/positionBudget/currency", "currency", "list"),
     _meta("/positionBudget/salaryPayPeriod", field_type="list"),
 ]
-ALL_LISTS = [
-    {
-        "name": "department",
-        "items": [{"id": 10, "name": "Engineering", "value": "Engineering"}],
-    },
-    {"name": "site", "items": [{"id": 20, "name": "London", "value": "London"}]},
-    {"name": "currency", "items": [{"id": "GBP", "name": "GBP", "value": "GBP"}]},
-]
+
+
+def _single_lists() -> dict[str, dict[str, Any]]:
+    """Single-list responses, in the shape the live endpoint returns."""
+    lists = {
+        "department": [{"id": 10, "name": "Engineering", "value": "Engineering"}],
+        "site": [{"id": 20, "name": "London", "value": "London"}],
+        "jobProfile": [{"id": 30, "name": "Engineer"}],
+        "currency": [{"id": "GBP", "name": "GBP", "value": "GBP"}],
+    }
+    return {
+        name: {"name": name, "values": items, "items": items}
+        for name, items in lists.items()
+    }
 
 
 def _mock_metadata(mock_api: respx.MockRouter) -> None:
@@ -312,14 +318,13 @@ async def test_position_form_joins_three_sections_with_named_lists(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
     _mock_metadata(mock_api)
-    all_lists = mock_api.get(NAMED_LISTS).mock(
-        return_value=httpx.Response(200, json=ALL_LISTS)
-    )
-    job_profiles = mock_api.get(f"{NAMED_LISTS}/jobProfile").mock(
-        return_value=httpx.Response(
-            200, json={"name": "jobProfile", "items": [{"id": 30, "name": "Engineer"}]}
+    all_lists = mock_api.get(NAMED_LISTS)
+    by_name = {
+        name: mock_api.get(f"{NAMED_LISTS}/{name}").mock(
+            return_value=httpx.Response(200, json=entry)
         )
-    )
+        for name, entry in _single_lists().items()
+    }
 
     result = json.loads(await call_tool(mcp_server, "hibob_get_workforce_form"))
 
@@ -365,10 +370,16 @@ async def test_position_form_joins_three_sections_with_named_lists(
     ]
     assert "Annual" in budget["/positionBudget/salaryPayPeriod"]["allowed_values"]
 
-    # One combined fetch, then only the list the combined response lacked.
-    assert all_lists.call_count == 1
-    assert "includeArchived" not in str(all_lists.calls.last.request.url)
-    assert job_profiles.call_count == 1
+    # The combined endpoint can be tens of megabytes: only the lists the
+    # form needs are fetched, one call each.
+    assert not all_lists.called
+    assert {name: route.call_count for name, route in by_name.items()} == {
+        "department": 1,
+        "site": 1,
+        "jobProfile": 1,
+        "currency": 1,
+    }
+    assert "includeArchived" not in str(by_name["site"].calls.last.request.url)
 
 
 async def test_opening_form_fetches_only_what_it_needs(
@@ -395,9 +406,6 @@ async def test_form_passes_include_archived_through_to_every_list_call(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
     _mock_metadata(mock_api)
-    all_lists = mock_api.get(
-        NAMED_LISTS, params__contains={"includeArchived": "true"}
-    ).mock(return_value=httpx.Response(200, json=[]))
     by_name = mock_api.get(
         NAMED_LISTS + "/currency", params__contains={"includeArchived": "true"}
     ).mock(return_value=httpx.Response(200, json={"name": "currency", "items": []}))
@@ -408,7 +416,6 @@ async def test_form_passes_include_archived_through_to_every_list_call(
         {"object_type": "positionBudget", "include_archived_list_items": True},
     )
 
-    assert all_lists.called
     assert by_name.called
 
 
@@ -416,7 +423,6 @@ async def test_form_survives_missing_lists_with_a_warning(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
     _mock_metadata(mock_api)
-    mock_api.get(NAMED_LISTS).mock(return_value=httpx.Response(200, json=[]))
     mock_api.get(f"{NAMED_LISTS}/currency").mock(
         return_value=httpx.Response(404, json={"error": "no such list"})
     )
@@ -439,7 +445,6 @@ async def test_form_treats_a_named_lists_outage_as_a_warning(
 ) -> None:
     """A form without drop-down options still beats no form at all."""
     _mock_metadata(mock_api)
-    mock_api.get(NAMED_LISTS).mock(return_value=httpx.Response(403, json={}))
     mock_api.get(f"{NAMED_LISTS}/currency").mock(
         return_value=httpx.Response(403, json={})
     )
@@ -451,7 +456,8 @@ async def test_form_treats_a_named_lists_outage_as_a_warning(
     )
 
     assert "sections" in result
-    assert len(result["warnings"]) == 2
+    assert len(result["warnings"]) == 1
+    assert "Manage positions" in result["warnings"][0]
 
 
 async def test_form_metadata_failure_is_an_error(
@@ -471,18 +477,19 @@ async def test_form_metadata_failure_is_an_error(
     assert "Manage positions" in result
 
 
-async def test_form_accepts_named_lists_keyed_by_name(
+async def test_form_reads_items_from_a_single_list_response(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    """A single-list response carries "name", "values" and "items"; the
+    documented shape has "items" alone. Both work, and a bare list does too."""
     _mock_metadata(mock_api)
-    mock_api.get(NAMED_LISTS).mock(
+    mock_api.get(f"{NAMED_LISTS}/currency").mock(
         return_value=httpx.Response(
             200,
             json={
-                "currency": {
-                    "name": "currency",
-                    "items": [{"id": "EUR", "name": "EUR"}],
-                }
+                "name": "currency",
+                "values": [{"id": "EUR", "name": "EUR"}],
+                "items": [{"id": "EUR", "name": "EUR", "archived": False}],
             },
         )
     )
@@ -495,3 +502,539 @@ async def test_form_accepts_named_lists_keyed_by_name(
 
     currency = _fields(result["sections"][0])["/positionBudget/currency"]
     assert currency["options"] == [{"id": "EUR", "name": "EUR"}]
+
+
+async def test_openings_for_positions_joins_entries_from_values_key(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """The live API pages entries under "values"; the join must read them."""
+    mock_api.post(OPENINGS_SEARCH).mock(
+        side_effect=[
+            httpx.Response(
+                200,
+                json={
+                    "values": [_opening(11, 7), _opening(12, 8)],
+                    "response_metadata": {"next_cursor": "p2"},
+                },
+            ),
+            httpx.Response(
+                200,
+                json={
+                    "values": [_opening(13, 7, "filled")],
+                    "response_metadata": {"next_cursor": None},
+                },
+            ),
+        ]
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_openings_for_positions", {"position_ids": ["7"]}
+        )
+    )
+
+    assert result["openings_scanned"] == 3
+    assert result["scan_complete"] is True
+    assert result["counts_by_position"] == {"7": 2}
+    assert [e["values"]["/positionOpening/id"] for e in result["entries"]] == [11, 13]
+
+
+# -------------------------------------------------- narrowing the position form
+
+
+NARROW_POSITION_METADATA = [
+    *POSITION_METADATA,
+    _meta("/position/managerPositionId", "position_entity_list", "list"),
+]
+NARROW_LISTS: dict[str, list[dict[str, Any]]] = {
+    "department": [{"id": 1, "name": "Data"}, {"id": 2, "name": "Engineering"}],
+    "site": [{"id": 20, "name": "London"}],
+    "currency": [{"id": "GBP", "name": "GBP"}],
+    "jobProfile": [
+        {
+            "id": 100,
+            "name": "Data Scientist",
+            "children": [
+                {"id": 101, "name": "C Data Scientist Data Science Data (J-1)"}
+            ],
+        },
+        {
+            "id": 110,
+            "name": "Software Engineer",
+            "children": [
+                {"id": 111, "name": "C Software Engineer Platform Engineering (J-2)"}
+            ],
+        },
+        {
+            "id": 120,
+            "name": "Data Engineer",
+            "children": [
+                {"id": 121, "name": "C Data Engineer Data Platform Data (J-3)"}
+            ],
+        },
+    ],
+    "position_entity_list": [
+        {
+            "id": 1000,
+            "name": "Data",
+            "children": [
+                {
+                    "id": 1001,
+                    "name": "D Head of Data Data (J-9)",
+                    "children": [
+                        {"id": 5001, "name": "P-0001 · London · Jane Doe"},
+                        {"id": 5002, "name": "P-0002 · London · Sam Roe"},
+                    ],
+                }
+            ],
+        },
+        {
+            "id": 2000,
+            "name": "Engineering",
+            "children": [
+                {
+                    "id": 2001,
+                    "name": "E VP Engineering Engineering (J-8)",
+                    "children": [{"id": 6001, "name": "P-0003 · Berlin · Alex Poe"}],
+                }
+            ],
+        },
+    ],
+}
+
+
+def _mock_narrowing(mock_api: respx.MockRouter) -> None:
+    mock_api.get(POSITION_META).mock(
+        return_value=httpx.Response(200, json=NARROW_POSITION_METADATA)
+    )
+    mock_api.get(OPENING_META).mock(
+        return_value=httpx.Response(200, json=OPENING_METADATA)
+    )
+    mock_api.get(BUDGET_META).mock(
+        return_value=httpx.Response(200, json=BUDGET_METADATA)
+    )
+    for name, items in NARROW_LISTS.items():
+        mock_api.get(f"{NAMED_LISTS}/{name}").mock(
+            return_value=httpx.Response(200, json={"name": name, "items": items})
+        )
+
+
+async def test_position_form_narrows_lists_from_department_role_and_manager(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_narrowing(mock_api)
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_workforce_form",
+            {
+                "department": "data",
+                "job_profile": "data scientist",
+                "manager": "jane doe",
+            },
+        )
+    )
+
+    assert "questions" not in result
+    position = _fields(_sections(result)["position"])
+
+    department = position["/position/department"]
+    assert department["value"] == 1
+    assert department["value_name"] == "Data"
+    assert department["options"] == [
+        {"id": 1, "name": "Data"},
+        {"id": 2, "name": "Engineering"},
+    ]
+
+    job = position["/position/jobProfile"]
+    assert job["options"] == [
+        {"id": 101, "name": "Data Scientist > C Data Scientist Data Science Data (J-1)"}
+    ]
+    assert job["value"] == 101
+
+    manager = position["/position/managerPositionId"]
+    assert manager["options"] == [
+        {
+            "id": 5001,
+            "name": "Data > D Head of Data Data (J-9) > P-0001 · London · Jane Doe",
+        }
+    ]
+    assert manager["value"] == 5001
+    assert "options_truncated" not in manager
+
+
+async def test_position_form_limits_manager_and_profile_choices_to_the_department(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_narrowing(mock_api)
+
+    result = json.loads(
+        await call_tool(mcp_server, "hibob_get_workforce_form", {"department": "Data"})
+    )
+
+    assert "questions" not in result
+    position = _fields(_sections(result)["position"])
+    assert [o["id"] for o in position["/position/managerPositionId"]["options"]] == [
+        5001,
+        5002,
+    ]
+    assert position["/position/managerPositionId"]["options"][0]["name"] == (
+        "D Head of Data Data (J-9) > P-0001 · London · Jane Doe"
+    )
+    assert "value" not in position["/position/managerPositionId"]
+    # Profiles whose label names the department; the engineering one drops out.
+    assert [o["id"] for o in position["/position/jobProfile"]["options"]] == [101, 121]
+
+
+async def test_position_form_withholds_the_form_and_asks_when_lists_are_too_big(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """A Slack-style form needs every option up front, so an unresolvable
+    field means questions instead of a form."""
+    _mock_narrowing(mock_api)
+
+    result = json.loads(
+        await call_tool(mcp_server, "hibob_get_workforce_form", {"max_options": 2})
+    )
+
+    assert "sections" not in result
+    assert result["form"] == "position"
+    assert result["submit_with"] == "hibob_create_position"
+    questions = {q["argument"]: q for q in result["questions"]}
+    assert set(questions) == {"job_profile", "manager"}
+    assert questions["job_profile"]["field"] == "/position/jobProfile"
+    assert questions["manager"]["field"] == "/position/managerPositionId"
+    assert all(q["ask"] for q in questions.values())
+    # Three job titles and three positions exceed the cap, so no candidates.
+    assert "candidates" not in questions["job_profile"]
+    assert "candidates" not in questions["manager"]
+    assert "call again" in result["note"].lower()
+
+
+async def test_position_form_asks_again_with_candidates_when_a_hint_matches_nothing(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_narrowing(mock_api)
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_workforce_form", {"department": "Nowhere"}
+        )
+    )
+
+    assert "sections" not in result
+    assert [q["argument"] for q in result["questions"]] == ["department"]
+    question = result["questions"][0]
+    assert question["field"] == "/position/department"
+    assert "Nowhere" in question["ask"]
+    assert question["candidates"] == [
+        {"id": 1, "name": "Data"},
+        {"id": 2, "name": "Engineering"},
+    ]
+
+
+async def test_narrowing_arguments_are_ignored_for_other_forms(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_narrowing(mock_api)
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_workforce_form",
+            {"object_type": "positionBudget", "department": "Nowhere"},
+        )
+    )
+
+    assert "questions" not in result
+    assert [s["object_type"] for s in result["sections"]] == ["positionBudget"]
+
+
+# ------------------------------------------------------- named-list caching
+
+
+async def test_form_reuses_named_lists_within_the_cache_ttl(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """The ask-then-call-again loop fetches the same lists twice in a row,
+    and HiBob allows only 50 named-list requests a minute."""
+    _mock_metadata(mock_api)
+    currency = mock_api.get(f"{NAMED_LISTS}/currency").mock(
+        return_value=httpx.Response(200, json={"name": "currency", "items": []})
+    )
+
+    for _ in range(2):
+        await call_tool(
+            mcp_server, "hibob_get_workforce_form", {"object_type": "positionBudget"}
+        )
+
+    assert currency.call_count == 1
+
+
+async def test_form_refetches_named_lists_after_the_ttl(
+    server_factory, mock_api: respx.MockRouter
+) -> None:
+    from hibob_advanced_mcp.cache import NamedListCache
+
+    now = [1000.0]
+    mcp = server_factory(
+        list_cache=NamedListCache(ttl_seconds=60, clock=lambda: now[0])
+    )
+    _mock_metadata(mock_api)
+    currency = mock_api.get(f"{NAMED_LISTS}/currency").mock(
+        return_value=httpx.Response(200, json={"name": "currency", "items": []})
+    )
+
+    await call_tool(mcp, "hibob_get_workforce_form", {"object_type": "positionBudget"})
+    now[0] += 61
+    await call_tool(mcp, "hibob_get_workforce_form", {"object_type": "positionBudget"})
+
+    assert currency.call_count == 2
+
+
+async def test_cache_keeps_archived_and_live_variants_apart(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_metadata(mock_api)
+    # The archived route is registered first, since respx takes the first match.
+    archived = mock_api.get(
+        f"{NAMED_LISTS}/currency", params__contains={"includeArchived": "true"}
+    ).mock(return_value=httpx.Response(200, json={"name": "currency", "items": []}))
+    live = mock_api.get(f"{NAMED_LISTS}/currency").mock(
+        return_value=httpx.Response(200, json={"name": "currency", "items": []})
+    )
+
+    for include_archived in (False, True, False):
+        await call_tool(
+            mcp_server,
+            "hibob_get_workforce_form",
+            {
+                "object_type": "positionBudget",
+                "include_archived_list_items": include_archived,
+            },
+        )
+
+    assert live.call_count == 1
+    assert archived.call_count == 1
+
+
+async def test_named_lists_summary_is_cached_too(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """The combined endpoint is the expensive one, so its summary is kept."""
+    all_lists = mock_api.get(NAMED_LISTS).mock(
+        return_value=httpx.Response(200, json={"site": {"name": "site", "items": []}})
+    )
+
+    for _ in range(2):
+        result = json.loads(
+            await call_tool(mcp_server, "hibob_get_company_named_lists")
+        )
+
+    assert result["lists"] == [{"name": "site", "items": 0}]
+    assert all_lists.call_count == 1
+
+
+async def test_failed_list_fetches_are_not_cached(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_metadata(mock_api)
+    currency = mock_api.get(f"{NAMED_LISTS}/currency").mock(
+        side_effect=[
+            httpx.Response(403, json={}),
+            httpx.Response(
+                200, json={"name": "currency", "items": [{"id": "EUR", "name": "EUR"}]}
+            ),
+        ]
+    )
+
+    first = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_workforce_form", {"object_type": "positionBudget"}
+        )
+    )
+    second = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_workforce_form", {"object_type": "positionBudget"}
+        )
+    )
+
+    assert "warnings" in first
+    assert "warnings" not in second
+    assert _fields(second["sections"][0])["/positionBudget/currency"]["options"] == [
+        {"id": "EUR", "name": "EUR"}
+    ]
+    assert currency.call_count == 2
+
+
+async def test_named_lists_tool_shares_the_cache_with_the_form(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_metadata(mock_api)
+    currency = mock_api.get(f"{NAMED_LISTS}/currency").mock(
+        return_value=httpx.Response(
+            200, json={"name": "currency", "items": [{"id": "EUR", "name": "EUR"}]}
+        )
+    )
+
+    await call_tool(
+        mcp_server, "hibob_get_workforce_form", {"object_type": "positionBudget"}
+    )
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_company_named_lists", {"list_name": "currency"}
+        )
+    )
+
+    assert result["items"] == [{"id": "EUR", "name": "EUR"}]
+    assert currency.call_count == 1
+
+
+# --------------------------------------------------- hibob_get_positions_under
+
+
+POSITION_SEARCH = "/objects/position/search"
+MATCH_ALL_POSITIONS = {
+    "fieldId": "/position/id",
+    "operator": "notEqual",
+    "values": ["1"],
+}
+
+
+def _position_row(
+    position_id: int,
+    name: str,
+    manager: int | None = None,
+    holder: str | None = None,
+    holder_id: int | None = None,
+    status: str = "filled",
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "/position/id": {"value": position_id, "humanReadable": str(position_id)},
+        "/position/name": {"value": name, "humanReadable": name},
+        "/position/status": {"value": status, "humanReadable": status.title()},
+        "/position/department": {"value": "1", "humanReadable": "Data"},
+    }
+    if manager is not None:
+        row["/position/managerPositionId"] = {"value": manager, "humanReadable": "x"}
+    if holder_id is not None:
+        row["/position/filledBy"] = {"value": str(holder_id), "humanReadable": holder}
+    return row
+
+
+COMPANY = [
+    _position_row(11, "P-11", holder="Jane Doe", holder_id=100),
+    _position_row(12, "P-12", manager=11, holder="Sam Roe", holder_id=200),
+    _position_row(
+        13, "P-13", manager=11, holder="Jane Poe", holder_id=300, status="starting"
+    ),
+    _position_row(14, "P-14", manager=12, status="vacant"),
+    _position_row(15, "P-15", holder="Alex Foo", holder_id=500),
+]
+
+
+async def test_positions_under_scans_once_and_walks_the_tree(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=COMPANY)
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_positions_under", {"position": "Jane Doe"}
+        )
+    )
+
+    assert route.call_count == 1
+    body = json.loads(route.calls.last.request.content)
+    assert body["filters"] == [MATCH_ALL_POSITIONS]
+    assert {"/position/id", "/position/managerPositionId", "/position/filledBy"} <= set(
+        body["fields"]
+    )
+
+    assert result["root"]["id"] == "11"
+    assert result["root"]["holder"] == "Jane Doe"
+    assert result["resolved_by"] == "holder_name"
+    assert [(p["id"], p["depth"]) for p in result["positions"]] == [
+        ("12", 1),
+        ("14", 2),
+        ("13", 1),
+    ]
+    assert result["count"] == 3
+    assert result["direct_reports"] == 2
+    assert result["max_depth"] == 2
+    assert result["counts_by_status"] == {"filled": 1, "starting": 1, "vacant": 1}
+
+
+async def test_positions_under_limits_depth_to_direct_reports(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=COMPANY))
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_positions_under", {"position": "11", "depth": 1}
+        )
+    )
+
+    assert result["resolved_by"] == "position_id"
+    assert [p["id"] for p in result["positions"]] == ["12", "13"]
+    assert result["direct_reports"] == 2
+
+
+async def test_positions_under_filters_status_after_the_walk_not_in_hibob(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """Filtering the scan by status would orphan positions whose manager is
+    in another status, so the whole tree is scanned and filtered here."""
+    route = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=COMPANY)
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_positions_under",
+            {"position": "P-11", "statuses": ["vacant"]},
+        )
+    )
+
+    assert json.loads(route.calls.last.request.content)["filters"] == [
+        MATCH_ALL_POSITIONS
+    ]
+    assert [(p["id"], p["depth"]) for p in result["positions"]] == [("14", 2)]
+    assert result["count"] == 1
+    assert result["counts_by_status"] == {"vacant": 1}
+    # The tree's shape is still reported in full.
+    assert result["direct_reports"] == 2
+    assert result["max_depth"] == 2
+
+
+async def test_positions_under_returns_candidates_for_an_ambiguous_name(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=COMPANY))
+
+    result = json.loads(
+        await call_tool(mcp_server, "hibob_get_positions_under", {"position": "jane"})
+    )
+
+    assert "positions" not in result
+    assert [c["id"] for c in result["candidates"]] == ["11", "13"]
+    assert [c["holder"] for c in result["candidates"]] == ["Jane Doe", "Jane Poe"]
+    assert "position ID" in result["note"]
+
+
+async def test_positions_under_reports_no_match_as_an_error(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=COMPANY))
+
+    result = await call_tool(
+        mcp_server, "hibob_get_positions_under", {"position": "Nobody Here"}
+    )
+
+    assert result.startswith("Error:")
+    assert "Nobody Here" in result
