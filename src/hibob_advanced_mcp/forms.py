@@ -103,7 +103,9 @@ READ_ONLY_FIELDS: dict[str, frozenset[str]] = {
             "/positionOpening/filledBy",
         }
     ),
-    OBJECT_TYPE_BUDGET: frozenset({"/positionBudget/id", "/positionBudget/positionId"}),
+    # No positionId: a budget is linked to its position by "/position/budget"
+    # on the position, not by a field of its own.
+    OBJECT_TYPE_BUDGET: frozenset({"/positionBudget/id"}),
 }
 
 # Fixed vocabularies from HiBob's API reference. Used only when the metadata

@@ -543,9 +543,11 @@ async def test_create_budget_reads_back_the_budget(
                 "values": [
                     {
                         "/positionBudget/id": {"value": 8},
-                        "/positionBudget/positionId": {"value": 5},
                         "/positionBudget/currency": {"value": "GBP"},
                         "/positionBudget/salaryPayPeriod": {"value": "Annual"},
+                        "/positionBudget/totalPositionCostCurrencyValue": {
+                            "value": {"value": 80000, "currency": "GBP"}
+                        },
                     }
                 ]
             },
@@ -862,3 +864,44 @@ async def test_read_back_comparison_tolerates_hibob_value_shapes(
 
     assert result["verified"] is True
     assert "unconfirmed_fields" not in result
+
+
+async def test_budget_read_back_requests_only_fields_hibob_has(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """The read-back must ask for the real cost fields and no phantom ones.
+
+    '/positionBudget/positionId' does not exist on HiBob's budget object; a
+    budget is linked to its position by '/position/budget' on the position
+    side. HiBob silently drops field IDs it does not recognise, so asking for
+    it costs the caller the three cost figures it crowds out rather than
+    raising.
+    """
+    mock_api.post("/workforce-planning/positions/5/position-budget").mock(
+        return_value=httpx.Response(200, json={"positionBudgetId": 8})
+    )
+    budgets = mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(
+            200, json={"values": [{"/positionBudget/id": {"value": 8}}]}
+        )
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_create_position_budget",
+        {
+            "position_id": "5",
+            "fields": {
+                "/positionBudget/salaryPayPeriod": "Annual",
+                "/positionBudget/currency": "GBP",
+            },
+        },
+    )
+
+    requested = set(json.loads(budgets.calls.last.request.content)["fields"])
+    assert "/positionBudget/positionId" not in requested
+    assert {
+        "/positionBudget/convertedTotalCostCurrencyValue",
+        "/positionBudget/proRatedCostCurrencyValue",
+        "/positionBudget/proRatedCostPercentage",
+    } <= requested

@@ -15,6 +15,8 @@ READ_TOOLS = {
     "hibob_search_positions",
     "hibob_search_position_openings",
     "hibob_search_position_budgets",
+    "hibob_get_position_costs",
+    "hibob_summarize_position_costs",
 }
 
 WRITE_TOOLS = {

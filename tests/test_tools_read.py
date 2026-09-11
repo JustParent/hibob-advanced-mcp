@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 
 import httpx
+import pytest
 import respx
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.exceptions import ToolError
 
 from conftest import call_tool
 
@@ -473,6 +475,28 @@ async def test_budget_search_without_filters_returns_every_budget(
     ]
 
 
+async def test_budget_search_accepts_hibobs_full_page_size(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob allows up to 1000 budgets per page; the tool must not cap lower.
+
+    The budget search is the only paginated way to reach cost data, and the
+    whole sandbox is 808 budgets, so a 1000 page fetches every one of them in
+    a single request.
+    """
+    route = mock_api.post("/positions/position-budget/search").mock(
+        return_value=httpx.Response(200, json={"values": []})
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_search_position_budgets",
+        {"fields": ["/positionBudget/id"], "limit": 1000},
+    )
+
+    assert json.loads(route.calls.last.request.content)["pagination"]["limit"] == 1000
+
+
 # ------------------------------------------- free-text query on position search
 
 
@@ -645,3 +669,193 @@ async def test_position_search_query_needs_every_word_and_names_near_misses(
     assert result["entries"] == []
     assert "No position matches every word" in result["note"]
     assert "Madrid - Office" in result["note"]
+
+
+# ------------------------------------------------------------- position costs
+
+POSITION_SEARCH = "/objects/position/search"
+BUDGET_SEARCH = "/positions/position-budget/search"
+
+
+def _costed_budget(budget_id: int, converted: float, currency: str = "EUR") -> dict:
+    return {
+        "/positionBudget/id": {"value": budget_id},
+        "/positionBudget/currency": {"value": currency},
+        "/positionBudget/convertedTotalCostCurrencyValue": {
+            "value": {"value": converted, "currency": "EUR"}
+        },
+    }
+
+
+async def test_position_costs_joins_each_position_to_its_budget(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """Cost reaches a position only through '/position/budget'.
+
+    The tool asks HiBob for the named positions, reads the budget ID off each
+    one, then fetches exactly those budgets -- two narrow calls, no scan.
+    """
+    positions = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "/position/id": {"value": 11},
+                    "/position/name": {"value": "P-001"},
+                    "/position/budget": {"value": 10},
+                }
+            ],
+        )
+    )
+    budgets = mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(200, json={"values": [_costed_budget(10, 1000.0)]})
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_position_costs", {"position_ids": ["11"]}
+        )
+    )
+
+    assert result["count"] == 1
+    values = result["entries"][0]["values"]
+    assert values["/position/name"] == "P-001"
+    assert values["/positionBudget/convertedTotalCostCurrencyValue"] == {
+        "value": 1000.0,
+        "currency": "EUR",
+    }
+    assert result["positions_without_budget"] == []
+
+    # Positions are fetched by ID, and only the referenced budgets are asked for.
+    position_body = json.loads(positions.calls.last.request.content)
+    assert position_body["filters"] == [
+        {"fieldId": "/position/id", "operator": "equals", "values": ["11"]}
+    ]
+    assert "/position/budget" in position_body["fields"]
+    assert json.loads(budgets.calls.last.request.content)["filters"] == [
+        {"fieldId": "/positionBudget/id", "operator": "equals", "values": ["10"]}
+    ]
+
+
+async def test_summarize_position_costs_rolls_up_by_department(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob can neither filter nor group by cost, so the roll-up happens here.
+
+    Both searches are match-all: the whole company in two calls.
+    """
+    positions = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "/position/id": {"value": 1},
+                    "/position/budget": {"value": 10},
+                    "/position/department": {
+                        "value": 99,
+                        "humanReadable": "Engineering",
+                    },
+                },
+                {
+                    "/position/id": {"value": 2},
+                    "/position/budget": {"value": 20},
+                    "/position/department": {
+                        "value": 99,
+                        "humanReadable": "Engineering",
+                    },
+                },
+                {
+                    "/position/id": {"value": 3},
+                    "/position/budget": {"value": 30},
+                    "/position/department": {"value": 98, "humanReadable": "Finance"},
+                },
+            ],
+        )
+    )
+    budgets = mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "values": [
+                    _costed_budget(10, 1000.0),
+                    _costed_budget(20, 500.0),
+                    _costed_budget(30, 250.0),
+                ]
+            },
+        )
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_summarize_position_costs",
+            {"group_by": "department"},
+        )
+    )
+
+    assert result["position_count"] == 3
+    assert result["currency"] == "EUR"
+    assert result["total_converted_cost"] == 1750.0
+    assert result["groups"] == [
+        {"group": "Engineering", "position_count": 2, "total_converted_cost": 1500.0},
+        {"group": "Finance", "position_count": 1, "total_converted_cost": 250.0},
+    ]
+    assert result["positions_without_budget"] == []
+
+    assert json.loads(positions.calls.last.request.content)["filters"] == [
+        {"fieldId": "/position/id", **MATCH_ALL}
+    ]
+    assert json.loads(budgets.calls.last.request.content)["filters"] == [
+        {"fieldId": "/positionBudget/id", **MATCH_ALL}
+    ]
+
+
+async def test_position_costs_reports_ids_hibob_returned_nothing_for(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """An unknown position ID must be named, not silently absent.
+
+    Silence is what sent callers looking for cost in the first place, so a
+    position HiBob did not return is reported rather than left out.
+    """
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "/position/id": {"value": 11},
+                    "/position/budget": {"value": 10},
+                }
+            ],
+        )
+    )
+    mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(200, json={"values": [_costed_budget(10, 1000.0)]})
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_position_costs",
+            {"position_ids": ["11", "404404"]},
+        )
+    )
+
+    assert result["count"] == 1
+    assert result["positions_not_found"] == ["404404"]
+
+
+async def test_summarize_position_costs_rejects_an_unknown_status(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob accepts an unknown status and returns nothing for it.
+
+    A zero total that means "you misspelled it" is the same silent emptiness
+    that hides cost in the first place, so the schema rejects it instead.
+    """
+    with pytest.raises(ToolError):
+        await call_tool(
+            mcp_server,
+            "hibob_summarize_position_costs",
+            {"statuses": ["definitely-not-a-status"]},
+        )
