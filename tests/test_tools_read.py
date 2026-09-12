@@ -858,3 +858,98 @@ async def test_summarize_position_costs_rejects_an_unknown_status(
             "hibob_summarize_position_costs",
             {"statuses": ["definitely-not-a-status"]},
         )
+
+
+async def test_budget_search_names_the_position_each_budget_belongs_to(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob puts no position link on a budget, so the server supplies one.
+
+    Without it a budget record cannot be attributed to anything, and the only
+    honest answer from the budget alone is that cost is unavailable.
+    """
+    mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "values": [_costed_budget(10, 1000.0), _costed_budget(99, 5.0)],
+            },
+        )
+    )
+    positions = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(
+            200,
+            json=[
+                {
+                    "/position/id": {"value": 11},
+                    "/position/name": {"value": "P-001"},
+                    "/position/budget": {"value": 10},
+                }
+            ],
+        )
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_position_budgets",
+            {"fields": ["/positionBudget/id"]},
+        )
+    )
+
+    assert result["entries"][0]["position"] == {"id": "11", "name": "P-001"}
+    assert result["entries"][1]["position"] is None
+    # The reverse index needs the budget reference, which is never returned
+    # unless it is named.
+    assert (
+        "/position/budget" in json.loads(positions.calls.last.request.content)["fields"]
+    )
+
+
+async def test_budget_search_can_skip_the_position_lookup(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """A pure roll-up does not need the link and should not pay for the scan."""
+    mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(200, json={"values": [_costed_budget(10, 1.0)]})
+    )
+    positions = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_position_budgets",
+            {"fields": ["/positionBudget/id"], "include_position": False},
+        )
+    )
+
+    assert "position" not in result["entries"][0]
+    assert not positions.called
+
+
+async def test_budget_search_keeps_the_budgets_when_the_owner_lookup_fails(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """The budgets were already fetched; a failed join must not discard them.
+
+    The failure is named instead, because a missing "position" key must not be
+    read as "no position owns this".
+    """
+    mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(200, json={"values": [_costed_budget(10, 1.0)]})
+    )
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(500))
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_position_budgets",
+            {"fields": ["/positionBudget/id"]},
+        )
+    )
+
+    assert result["count"] == 1
+    assert "position" not in result["entries"][0]
+    assert "position_link_error" in result

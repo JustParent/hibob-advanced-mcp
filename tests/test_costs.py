@@ -7,7 +7,12 @@ Rows here mirror HiBob's live wire shape: every cell is wrapped as
 
 from __future__ import annotations
 
-from hibob_advanced_mcp.costs import join_positions_to_budgets, summarize_costs
+from hibob_advanced_mcp.costs import (
+    attach_positions,
+    index_positions_by_budget,
+    join_positions_to_budgets,
+    summarize_costs,
+)
 
 
 def _position(position_id: int, budget_ref: int | None, **cells: object) -> dict:
@@ -139,3 +144,32 @@ def test_summarize_rejects_a_dimension_hibob_has_no_field_for() -> None:
         assert "department" in str(exc)  # names what can be grouped by
     else:
         raise AssertionError("expected a ValueError naming the valid dimensions")
+
+
+def test_index_maps_each_budget_back_to_the_position_holding_it() -> None:
+    """HiBob gives a budget no position link, so the reverse map is built here."""
+    positions = [
+        _position(11, 10, **{"/position/name": "P-001"}),
+        _position(12, 20, **{"/position/name": "P-002"}),
+    ]
+
+    index = index_positions_by_budget(positions)
+
+    assert index["10"] == {"id": "11", "name": "P-001"}
+    assert index["20"] == {"id": "12", "name": "P-002"}
+
+
+def test_attach_adds_the_position_to_each_flattened_budget_entry() -> None:
+    entries: list[dict] = [
+        {"values": {"/positionBudget/id": 10, "/positionBudget/currency": "EUR"}},
+        {"values": {"/positionBudget/id": 20}},
+    ]
+    index = {"10": {"id": "11", "name": "P-001"}}
+
+    attached = attach_positions(entries, index)
+
+    assert attached[0]["position"] == {"id": "11", "name": "P-001"}
+    # A budget no position references is a real state, reported as null rather
+    # than left off, so an absent link is never mistaken for an unasked question.
+    assert attached[1]["position"] is None
+    assert attached[0]["values"]["/positionBudget/currency"] == "EUR"

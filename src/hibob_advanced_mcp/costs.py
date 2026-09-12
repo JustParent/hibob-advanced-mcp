@@ -153,3 +153,47 @@ def _group(merged_rows: list[dict[str, Any]], group_by: str) -> list[dict[str, A
         }
         for key in sorted(counts, key=lambda k: (-totals[k], k))
     ]
+
+
+POSITION_NAME_FIELD = "/position/name"
+
+
+def index_positions_by_budget(
+    position_rows: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Map each budget's ID to the position that references it.
+
+    HiBob puts no position link on a budget, so the only way to say which
+    position a budget belongs to is to read "/position/budget" off every
+    position and invert it.
+    """
+    index: dict[str, dict[str, Any]] = {}
+    for row in position_rows:
+        ref = cell_value(row, POSITION_BUDGET_REF_FIELD)
+        if ref is None:
+            continue
+        position_id = cell_value(row, POSITION_ID_FIELD)
+        index[normalize_id(ref)] = {
+            "id": None if position_id is None else normalize_id(position_id),
+            "name": cell_value(row, POSITION_NAME_FIELD),
+        }
+    return index
+
+
+def attach_positions(
+    entries: list[dict[str, Any]], index: dict[str, dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Add the owning position to each flattened budget entry.
+
+    The link is synthesised here, not returned by HiBob, so it sits beside
+    ``values`` rather than among the field IDs: it cannot be filtered on or
+    written back. A budget no position references gets ``None``, which is a
+    real state and is reported rather than left off.
+    """
+    attached: list[dict[str, Any]] = []
+    for entry in entries:
+        values = entry.get("values")
+        budget_id = values.get(BUDGET_ID_FIELD) if isinstance(values, dict) else None
+        position = index.get(normalize_id(budget_id)) if budget_id is not None else None
+        attached.append({**entry, "position": position})
+    return attached
