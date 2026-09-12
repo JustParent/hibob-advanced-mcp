@@ -22,7 +22,9 @@ from .costs import (
     BUDGET_ID_FIELD,
     GROUP_BY_FIELDS,
     POSITION_BUDGET_REF_FIELD,
+    attach_positions,
     cell_value,
+    index_positions_by_budget,
     join_positions_to_budgets,
     summarize_costs,
 )
@@ -771,6 +773,26 @@ async def _fetch_budgets(
             break
         seen_cursors.add(cursor)
     return rows
+
+
+# Enough to say which position owns a budget, and no more: the scan runs on
+# every budget search, so it stays to three fields.
+POSITION_INDEX_FIELDS = (
+    "/position/id",
+    "/position/name",
+    POSITION_BUDGET_REF_FIELD,
+)
+
+
+async def _position_index_by_budget(
+    client: HiBobClient,
+) -> dict[str, dict[str, Any]]:
+    """Map budget ID to owning position, from one scan of every position."""
+    payload = await client.search(
+        POSITION_SEARCH_PATH,
+        _search_body(list(POSITION_INDEX_FIELDS), [MATCH_ALL_POSITIONS_FILTER], False),
+    )
+    return index_positions_by_budget(_raw_rows(payload, "positionEntries"))
 
 
 async def _costed_rows(
@@ -1643,11 +1665,33 @@ def register_workforce_planning_tools(
         include_human_readable: Annotated[
             bool, Field(description="Also return display labels for each value.")
         ] = True,
+        include_position: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Name the position each budget belongs to. Costs one extra "
+                    "request. Turn off only for a pure total, where the link is "
+                    "not needed."
+                )
+            ),
+        ] = True,
     ) -> str:
-        """Search position budgets: planned salary and total cost per position.
+        """Search position budgets: planned salary and cost figures.
 
-        Use this for cost roll-ups across planned headcount, such as the total
-        budgeted cost of every vacant position in a department.
+        A budget record carries no reference to the position it belongs to.
+        HiBob's only link runs the other way, as "/position/budget" on the
+        position, so a budget fetched here cannot be attributed to anything on
+        its own. This tool therefore reads that reference off every position
+        and reports the owner as each entry's "position". Do not conclude from
+        a budget's own fields that its position cannot be identified.
+
+        That link is synthesised here, which is why it sits beside "values"
+        rather than among the field IDs: HiBob cannot filter or sort on it.
+        Budgets can only be filtered by "/positionBudget/id" and
+        "/positionBudget/proRatedCostPercentage"; any other field is rejected.
+
+        To price named positions, prefer hibob_get_position_costs, which does
+        the join in the useful direction.
 
         Args:
             fields: Field IDs to return (1-50).
@@ -1655,12 +1699,25 @@ def register_workforce_planning_tools(
             limit: Page size, 1-1000. HiBob rejects anything larger.
             cursor: Cursor from a previous page, or None to start.
             include_human_readable: Include display labels.
+            include_position: Name the owning position on each entry.
 
         Returns:
-            str: JSON of the form {"count": int, "entries": [...],
-            "has_more": bool, "next_cursor": str}.
+            str: JSON of the form {"count": int, "entries": [{"values": {...},
+            "display": {...}, "position": {"id": str, "name": str} | null}],
+            "has_more": bool, "next_cursor": str}. A "position" of null means
+            no position references that budget. If the owner lookup fails the
+            budgets are still returned, with "position_link_error" saying why,
+            and no "position" key -- which is not the same as null.
 
-        Rate limit: 100 requests/minute.
+        Examples:
+            - "Cost of every budget in the plan" -> fields with the cost
+              figures; read each entry's "position" to see whose it is.
+            - Don't use when: you already know which positions you care about
+              (use hibob_get_position_costs), or you want a total broken down
+              by department (use hibob_summarize_position_costs).
+
+        Rate limit: 100 requests/minute; two requests unless include_position
+        is false.
         """
         try:
             body = _search_body(
@@ -1671,7 +1728,19 @@ def register_workforce_planning_tools(
                 pagination["cursor"] = cursor
             body["pagination"] = pagination
             payload = await client().search(BUDGET_SEARCH_PATH, body)
-            return _dump(_paged_search_result(payload, "positionBudgetEntries"))
+            result = _paged_search_result(payload, "positionBudgetEntries")
+            if include_position and result["entries"]:
+                try:
+                    index = await _position_index_by_budget(client())
+                except Exception as exc:
+                    # The budgets were fetched; losing the owner lookup must
+                    # not discard them, but it must not pass unremarked either.
+                    result["position_link_error"] = format_exception(exc).removeprefix(
+                        "Error: "
+                    )
+                else:
+                    result["entries"] = attach_positions(result["entries"], index)
+            return _dump(result)
         except Exception as exc:
             return format_exception(exc)
 
