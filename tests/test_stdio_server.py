@@ -75,7 +75,7 @@ async def test_server_lists_every_tool_over_stdio() -> None:
         return {tool.name for tool in (await session.list_tools()).tools}
 
     names = await _with_session(_params(), body)
-    assert len(names) == 18
+    assert len(names) == 19
     assert "hibob_search_positions" in names
     assert "hibob_create_position" in names
 
@@ -85,7 +85,7 @@ async def test_read_only_mode_hides_write_tools_over_stdio() -> None:
         return {tool.name for tool in (await session.list_tools()).tools}
 
     names = await _with_session(_params(HIBOB_READ_ONLY="true"), body)
-    assert len(names) == 10
+    assert len(names) == 11
     assert not any(
         name.startswith(
             ("hibob_create", "hibob_update", "hibob_cancel", "hibob_delete")
@@ -129,7 +129,7 @@ async def test_server_still_works_while_warning_on_stderr() -> None:
         body,
     )
 
-    assert tool_count == 18
+    assert tool_count == 19
     # The call fails because the host is unroutable, not because of bad framing.
     assert text.startswith("Error:")
 

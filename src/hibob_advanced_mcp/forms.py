@@ -164,6 +164,10 @@ QUERY_FILLER_WORDS = frozenset(
     {"a", "an", "and", "at", "for", "in", "of", "on", "the", "to", "with"}
 )
 
+# The tool that turns option names back into IDs, named on every list field
+# so a caller left with only the names can find its way back.
+RESOLVE_LIST_VALUES_TOOL = "hibob_resolve_list_values"
+
 # Guidance that applies to every form, phrased for the caller filling it in.
 FORM_INSTRUCTIONS: tuple[str, ...] = (
     "Fill in every field with required=true; other fields may be omitted.",
@@ -172,6 +176,9 @@ FORM_INSTRUCTIONS: tuple[str, ...] = (
     "exactly as written.",
     "'options' lists every valid item unless the field says "
     "'options_truncated'; then follow its 'options_note' to fetch the rest.",
+    "If only the chosen option names survive (after a form round trip, say), "
+    "call hibob_resolve_list_values with the field and the names to get the "
+    "IDs back; each list field names it as 'resolve_with'.",
     "Dates are ISO 8601 strings (YYYY-MM-DD). 'fte' is a percentage, so 100 "
     "means full time.",
     "Fields listed under 'read_only_fields' are set by HiBob and must not be sent.",
@@ -384,6 +391,7 @@ def build_form_section(
         override = (overrides or {}).get(field_id) or {}
         if isinstance(list_id, str) and list_id:
             entry["list_id"] = list_id
+            entry["resolve_with"] = RESOLVE_LIST_VALUES_TOOL
             items = lookup_named_list(named_lists, list_id)
             if "options" in override:
                 entry["options"] = list(override["options"])
