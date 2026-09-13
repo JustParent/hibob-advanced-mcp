@@ -247,6 +247,9 @@ async def test_create_opening_requires_expected_start_date(
 async def test_update_opening_targets_nested_url(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    mock_api.post(OPENING_SEARCH).mock(
+        return_value=httpx.Response(200, json={"values": [_opening_row(6, 5)]})
+    )
     route = mock_api.patch("/workforce-planning/positions/5/position-openings/6").mock(
         return_value=httpx.Response(200, json={"ok": True})
     )
@@ -267,6 +270,9 @@ async def test_update_opening_targets_nested_url(
 async def test_delete_opening_targets_nested_url(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    mock_api.post(OPENING_SEARCH).mock(
+        return_value=httpx.Response(200, json={"values": [_opening_row(6, 5)]})
+    )
     route = mock_api.delete("/workforce-planning/positions/5/position-openings/6").mock(
         return_value=httpx.Response(204)
     )
@@ -304,6 +310,9 @@ async def test_create_budget_requires_pay_period_and_currency(
 async def test_create_budget_posts_envelope(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=[_position_row(5)])
+    )
     route = mock_api.post("/workforce-planning/positions/5/position-budget").mock(
         return_value=httpx.Response(200, json={"positionBudgetId": 8})
     )
@@ -329,6 +338,11 @@ async def test_create_budget_posts_envelope(
 async def test_update_budget_targets_nested_url(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(
+            200, json=[_position_row(5, **{"/position/budget": 8})]
+        )
+    )
     route = mock_api.patch("/workforce-planning/positions/5/position-budget/8").mock(
         return_value=httpx.Response(204)
     )
@@ -533,6 +547,9 @@ async def test_create_opening_flags_a_parent_mismatch(
 async def test_create_budget_reads_back_the_budget(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=[_position_row(5)])
+    )
     mock_api.post("/workforce-planning/positions/5/position-budget").mock(
         return_value=httpx.Response(200, json={"positionBudgetId": 8})
     )
@@ -641,6 +658,11 @@ async def test_update_opening_reads_back_the_opening(
 async def test_update_budget_reads_back_the_budget(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(
+            200, json=[_position_row(5, **{"/position/budget": 8})]
+        )
+    )
     mock_api.patch("/workforce-planning/positions/5/position-budget/8").mock(
         return_value=httpx.Response(204)
     )
@@ -825,6 +847,11 @@ async def test_read_back_comparison_tolerates_hibob_value_shapes(
 ) -> None:
     """Numbers as strings, money as {"value", "currency"}, labels in another
     case: none of these is a mismatch."""
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(
+            200, json=[_position_row(5, **{"/position/budget": 8})]
+        )
+    )
     mock_api.patch("/workforce-planning/positions/5/position-budget/8").mock(
         return_value=httpx.Response(204)
     )
@@ -877,6 +904,9 @@ async def test_budget_read_back_requests_only_fields_hibob_has(
     it costs the caller the three cost figures it crowds out rather than
     raising.
     """
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=[_position_row(5)])
+    )
     mock_api.post("/workforce-planning/positions/5/position-budget").mock(
         return_value=httpx.Response(200, json={"positionBudgetId": 8})
     )

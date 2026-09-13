@@ -63,6 +63,21 @@ from .hierarchy import (
     shape_position,
     summarize_tree,
 )
+from .references import (
+    OPENING_NAME_FIELD,
+    OPENING_REF_FIELDS,
+    POSITION_NAME_FIELD,
+    POSITION_REF_FIELDS,
+    OpeningRef,
+    PositionRef,
+    budget_to_write,
+    check_opening_parent,
+    is_numeric_id,
+    reference_filter,
+    refuse_existing_budget,
+    single_match,
+    split_references,
+)
 
 # Endpoint paths, relative to the versioned API base.
 POSITION_METADATA_PATH = "/metadata/objects/position"
@@ -308,18 +323,6 @@ def _dump(payload: Any) -> str:
     return json.dumps(payload, indent=2, default=str)
 
 
-def _normalize_position_ids(position_ids: list[str | int]) -> list[str]:
-    """Deduplicate the requested position IDs, rejecting blanks."""
-    normalized: list[str] = []
-    for raw in position_ids:
-        value = normalize_id(raw)
-        if not value:
-            raise ValueError("Position IDs cannot be empty.")
-        if value not in normalized:
-            normalized.append(value)
-    return normalized
-
-
 def _openings_for_positions(
     entries: list[dict[str, Any]], position_ids: list[str]
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
@@ -551,6 +554,110 @@ async def _verify(
     if record is None:
         return None, f"{label} was not found when read back"
     return record, None
+
+
+POSITION_REF_DESCRIPTION = (
+    "The position, as its numeric ID ('/position/id') or the name HiBob "
+    "shows, such as 'P-0000000368'."
+)
+OPENING_REF_DESCRIPTION = (
+    "The opening, as its numeric ID ('/positionOpening/id') or the name HiBob "
+    "shows, such as 'O-6853240227'."
+)
+POSITION_REFS_DESCRIPTION = (
+    "One or more positions, each as its numeric ID ('/position/id') or the "
+    "name HiBob shows, such as 'P-0000000368'."
+)
+
+
+async def _resolve_position(
+    client: HiBobClient, value: Any, *, lookup_ids: bool
+) -> PositionRef:
+    """The position a caller means, by numeric ID or by name.
+
+    A name costs one search. An ID is taken as given unless ``lookup_ids``
+    is set, which the budget tools need: the budget a position carries is
+    only known from the position itself.
+    """
+    if is_numeric_id(value) and not lookup_ids:
+        return PositionRef(id=normalize_id(value), name=None, budget_id=None)
+    clause = reference_filter(
+        value, id_field="/position/id", name_field=POSITION_NAME_FIELD
+    )
+    payload = await client.search(
+        POSITION_SEARCH_PATH,
+        {
+            "fields": list(POSITION_REF_FIELDS),
+            "filters": [clause],
+            "includeHumanReadable": False,
+        },
+    )
+    rows = _raw_rows(payload, "positionEntries")
+    row = single_match(rows, "position", clause["values"][0], id_field="/position/id")
+    return PositionRef.from_row(row)
+
+
+async def _resolve_opening(client: HiBobClient, value: Any) -> OpeningRef:
+    """The opening a caller means, by numeric ID or by name, with its parent.
+
+    Always one search: the parent position it returns is what lets a write
+    under the wrong position be refused before it is sent.
+    """
+    clause = reference_filter(
+        value, id_field=OPENING_ID_FIELD, name_field=OPENING_NAME_FIELD
+    )
+    payload = await client.search(
+        OPENING_SEARCH_PATH,
+        {
+            "fields": list(OPENING_REF_FIELDS),
+            "filters": [clause],
+            "includeHumanReadable": False,
+            "pagination": {"limit": 2},
+        },
+    )
+    rows = _raw_rows(payload, "positionOpeningEntries")
+    row = single_match(rows, "opening", clause["values"][0], id_field=OPENING_ID_FIELD)
+    return OpeningRef.from_row(row)
+
+
+async def _resolve_position_ids(
+    client: HiBobClient, values: list[Any]
+) -> tuple[list[str], dict[str, str]]:
+    """Numeric IDs for a list of position references, in the order given.
+
+    Names are resolved together in one search. Returns the IDs and, for each
+    name that was given, the ID it resolved to.
+    """
+    ids, names = split_references(values)
+    if not names:
+        return ids, {}
+    payload = await client.search(
+        POSITION_SEARCH_PATH,
+        {
+            "fields": list(POSITION_REF_FIELDS),
+            "filters": [
+                {"fieldId": POSITION_NAME_FIELD, "operator": "equals", "values": names}
+            ],
+            "includeHumanReadable": False,
+        },
+    )
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for row in _raw_rows(payload, "positionEntries"):
+        name = str(cell_value(row, POSITION_NAME_FIELD) or "").strip().lower()
+        by_name.setdefault(name, []).append(row)
+    resolved: dict[str, str] = {}
+    for name in names:
+        row = single_match(
+            by_name.get(name.lower(), []), "position", name, id_field="/position/id"
+        )
+        resolved[name] = PositionRef.from_row(row).id
+    ordered: list[str] = []
+    for raw in values:
+        text = normalize_id(raw)
+        position_id = text if text.isdigit() else resolved[text]
+        if position_id not in ordered:
+            ordered.append(position_id)
+    return ordered, resolved
 
 
 def _finish_write(result: dict[str, Any], problems: list[str]) -> dict[str, Any]:
@@ -1388,12 +1495,7 @@ def register_workforce_planning_tools(
     async def hibob_get_openings_for_positions(
         position_ids: Annotated[
             list[str | int],
-            Field(
-                description=(
-                    "One or more position IDs, as returned in '/position/id'."
-                ),
-                min_length=1,
-            ),
+            Field(description=POSITION_REFS_DESCRIPTION, min_length=1),
         ],
         fields: Annotated[
             list[str] | None,
@@ -1425,11 +1527,13 @@ def register_workforce_planning_tools(
         or name, not by its parent position. This tool pages through every
         opening in the company (100 per request) and keeps those whose
         '/positionOpening/positionId' matches, doing the join here instead of
-        in HiBob. Pass several position IDs at once to pay for that scan only
-        once; a status filter is applied by HiBob and shortens it.
+        in HiBob. Pass several positions at once to pay for that scan only
+        once; a status filter is applied by HiBob and shortens it. A position
+        may be given by numeric ID or by its name (P-...); names are resolved
+        in one search first.
 
         Args:
-            position_ids: Position IDs to look up, from '/position/id'.
+            position_ids: Positions to look up, by ID or name.
             fields: Opening field IDs to return; the join fields are always
                 added.
             statuses: Restrict to these opening statuses.
@@ -1438,7 +1542,8 @@ def register_workforce_planning_tools(
         Returns:
             str: JSON {"count": int, "entries": [{"values": {...}, "display":
             {...}}], "counts_by_position": {"<position id>": int},
-            "openings_scanned": int, "scan_complete": bool}, or an error
+            "openings_scanned": int, "scan_complete": bool,
+            "resolved_positions"?: {"<name>": "<position id>"}}, or an error
             message beginning with "Error:". Every entry carries
             '/positionOpening/positionId', so entries can be grouped by
             position; a position with no openings has a count of 0.
@@ -1454,7 +1559,7 @@ def register_workforce_planning_tools(
         openings in the company.
         """
         try:
-            wanted = _normalize_position_ids(position_ids)
+            wanted, resolved = await _resolve_position_ids(client(), position_ids)
             requested = list(fields) if fields else list(DEFAULT_OPENING_FIELDS)
             search_fields = list(
                 dict.fromkeys([OPENING_ID_FIELD, OPENING_POSITION_ID_FIELD, *requested])
@@ -1475,6 +1580,8 @@ def register_workforce_planning_tools(
                 "openings_scanned": len(entries),
                 "scan_complete": complete,
             }
+            if resolved:
+                result["resolved_positions"] = resolved
             if not complete:
                 result["warning"] = (
                     f"Stopped after {len(entries)} openings without reaching the "
@@ -1757,10 +1864,7 @@ def register_workforce_planning_tools(
     async def hibob_get_position_costs(
         position_ids: Annotated[
             list[str | int],
-            Field(
-                description="One or more position IDs, as returned in '/position/id'.",
-                min_length=1,
-            ),
+            Field(description=POSITION_REFS_DESCRIPTION, min_length=1),
         ],
         include_human_readable: Annotated[
             bool, Field(description="Also return display labels for each value.")
@@ -1776,7 +1880,7 @@ def register_workforce_planning_tools(
         call answers "what does this position cost?".
 
         Args:
-            position_ids: Position IDs to price, from '/position/id'.
+            position_ids: Positions to price, by numeric ID or name (P-...).
             include_human_readable: Include display labels alongside raw values.
 
         Returns:
@@ -1795,7 +1899,7 @@ def register_workforce_planning_tools(
         Rate limit: 100 requests/minute; this uses two requests.
         """
         try:
-            wanted = _normalize_position_ids(position_ids)
+            wanted, resolved = await _resolve_position_ids(client(), position_ids)
             merged, unbudgeted = await _costed_rows(
                 client(),
                 [SearchFilter(field_id="/position/id", values=wanted)],
@@ -1807,14 +1911,15 @@ def register_workforce_planning_tools(
             found = {
                 normalize_id(cell_value(row, "/position/id")) for row in merged
             } | set(unbudgeted)
-            return _dump(
-                {
-                    "count": len(entries),
-                    "entries": entries,
-                    "positions_without_budget": unbudgeted,
-                    "positions_not_found": [pid for pid in wanted if pid not in found],
-                }
-            )
+            result: dict[str, Any] = {
+                "count": len(entries),
+                "entries": entries,
+                "positions_without_budget": unbudgeted,
+                "positions_not_found": [pid for pid in wanted if pid not in found],
+            }
+            if resolved:
+                result["resolved_positions"] = resolved
+            return _dump(result)
         except Exception as exc:
             return format_exception(exc)
 
@@ -2080,7 +2185,7 @@ def register_workforce_planning_tools(
     )
     async def hibob_update_position(
         position_id: Annotated[
-            str, Field(description="ID of the position to update.", min_length=1)
+            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
         ],
         fields: Annotated[
             dict[str, Any],
@@ -2097,19 +2202,20 @@ def register_workforce_planning_tools(
     ) -> str:
         """Change details of an existing position.
 
-        Only the fields supplied are modified. Use hibob_search_positions to
-        find the position ID first. Custom fields (/position/field_<number>,
+        Only the fields supplied are modified. The position may be given by
+        numeric ID or by its name (P-...). Custom fields (/position/field_<number>,
         such as a "Locations for hiring" list) are passed through to HiBob
         unverified: the result lists them as "undocumented_fields", and if
         HiBob rejects the update or quietly drops one of them, the error or
         "unconfirmed_fields" says so.
 
         Args:
-            position_id: The position's ID.
+            position_id: The position, by numeric ID or name.
             fields: Flat mapping of field IDs to new values.
 
         Returns:
-            str: JSON {"status": "updated", "verified": bool, "position": {...},
+            str: JSON {"status": "updated", "position_id": str, "verified":
+            bool, "position": {...},
             "undocumented_fields"?: [...], "unconfirmed_fields"?: {...}} with
             the position read back from HiBob, including the fields just
             changed; "verification_error" explains a failed read-back or a
@@ -2146,8 +2252,9 @@ def register_workforce_planning_tools(
                 if field_id not in UPDATABLE_POSITION_FIELDS
             )
             body = build_items_envelope(OBJECT_TYPE_POSITION, fields)
-            path = f"{POSITIONS_PATH}/{position_id}"
             api = client()
+            position = await _resolve_position(api, position_id, lookup_ids=False)
+            path = f"{POSITIONS_PATH}/{position.id}"
             try:
                 patched = await api.patch(path, body)
             except HiBobApiError as exc:
@@ -2163,18 +2270,18 @@ def register_workforce_planning_tools(
                         hibob_error=exc.hibob_error,
                     ) from exc
                 raise
-            result: dict[str, Any] = {"status": "updated"}
+            result: dict[str, Any] = {"status": "updated", "position_id": position.id}
             if isinstance(patched, dict) and patched:
                 result["response"] = patched
             if undocumented:
                 result["undocumented_fields"] = undocumented
             record, problem = await _verify(
-                f"position {position_id}",
+                position.describe(),
                 _read_back(
                     api,
                     POSITION_SEARCH_PATH,
                     "/position/id",
-                    position_id,
+                    position.id,
                     _read_back_fields(
                         OBJECT_TYPE_POSITION, VERIFY_POSITION_FIELDS, fields
                     ),
@@ -2201,17 +2308,18 @@ def register_workforce_planning_tools(
     )
     async def hibob_cancel_position(
         position_id: Annotated[
-            str, Field(description="ID of the position to cancel.", min_length=1)
+            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
         ],
     ) -> str:
         """Cancel a planned position, removing it from the workforce plan.
 
         HiBob refuses to cancel a position that is currently filled; check
         '/position/status' with hibob_search_positions first. Cancelling cannot
-        be undone through this API, so confirm the position ID before calling.
+        be undone through this API, so confirm the position before calling.
+        It may be given by numeric ID or by its name (P-...).
 
         Args:
-            position_id: The position's ID.
+            position_id: The position, by numeric ID or name.
 
         Returns:
             str: JSON confirming the cancellation, or an error message
@@ -2220,9 +2328,11 @@ def register_workforce_planning_tools(
         Rate limit: 10 requests/minute.
         """
         try:
-            path = f"{POSITIONS_PATH}/{position_id}/cancel"
-            result = await client().patch(path)
-            return _dump(result or {"status": "cancelled", "positionId": position_id})
+            api = client()
+            position = await _resolve_position(api, position_id, lookup_ids=False)
+            path = f"{POSITIONS_PATH}/{position.id}/cancel"
+            result = await api.patch(path)
+            return _dump(result or {"status": "cancelled", "positionId": position.id})
         except Exception as exc:
             return format_exception(exc)
 
@@ -2238,8 +2348,7 @@ def register_workforce_planning_tools(
     )
     async def hibob_create_position_opening(
         position_id: Annotated[
-            str,
-            Field(description="Position the opening belongs to.", min_length=1),
+            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
         ],
         fields: Annotated[
             dict[str, Any],
@@ -2256,7 +2365,7 @@ def register_workforce_planning_tools(
         """Add a vacancy to an existing position.
 
         Args:
-            position_id: The parent position's ID.
+            position_id: The parent position, by numeric ID or name (P-...).
             fields: Flat mapping of opening field IDs to values.
 
         Returns:
@@ -2272,12 +2381,14 @@ def register_workforce_planning_tools(
         try:
             validate_required_keys(OBJECT_TYPE_OPENING, fields, REQUIRED_OPENING_FIELDS)
             body = build_items_envelope(OBJECT_TYPE_OPENING, fields)
-            path = f"{POSITIONS_PATH}/{position_id}/position-openings"
             api = client()
+            position = await _resolve_position(api, position_id, lookup_ids=False)
+            path = f"{POSITIONS_PATH}/{position.id}/position-openings"
             created = await api.post(path, body)
             result: dict[str, Any] = (
                 dict(created) if isinstance(created, dict) else {"response": created}
             )
+            result["position_id"] = position.id
             opening_id = result.get("positionOpeningId", result.get("id"))
             problems: list[str] = []
             if opening_id is None:
@@ -2306,10 +2417,10 @@ def register_workforce_planning_tools(
                     parent = normalize_id(
                         record["values"].get(OPENING_POSITION_ID_FIELD)
                     )
-                    if parent != normalize_id(position_id):
+                    if parent != position.id:
                         problems.append(
                             f"opening {opening_id} belongs to position {parent}, "
-                            f"not {position_id}"
+                            f"not {position.id}"
                         )
             return _dump(_finish_write(result, problems))
         except Exception as exc:
@@ -2327,10 +2438,10 @@ def register_workforce_planning_tools(
     )
     async def hibob_update_position_opening(
         position_id: Annotated[
-            str, Field(description="Parent position ID.", min_length=1)
+            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
         ],
         opening_id: Annotated[
-            str, Field(description="ID of the opening to update.", min_length=1)
+            str, Field(description=OPENING_REF_DESCRIPTION, min_length=1)
         ],
         fields: Annotated[
             dict[str, Any],
@@ -2345,14 +2456,19 @@ def register_workforce_planning_tools(
         """Change an existing opening, such as its expected start date or
         recruitment status.
 
+        Both may be given by numeric ID or by name (P-... and O-...). The
+        opening is looked up first, and an opening that belongs to a different
+        position than the one given is refused before anything is written.
+
         Args:
-            position_id: Parent position ID.
-            opening_id: The opening's ID.
+            position_id: The parent position, by numeric ID or name.
+            opening_id: The opening, by numeric ID or name.
             fields: Flat mapping of field IDs to new values.
 
         Returns:
-            str: JSON confirming the update, or an error message beginning with
-            "Error:".
+            str: JSON {"status": "updated", "position_id": str, "opening_id":
+            str, "verified": bool, "opening": {...}}, or an error message
+            beginning with "Error:".
 
         Rate limit: 10 requests/minute.
         """
@@ -2360,19 +2476,26 @@ def register_workforce_planning_tools(
             if not fields:
                 raise ValueError("Provide at least one field to update.")
             body = build_items_envelope(OBJECT_TYPE_OPENING, fields)
-            path = f"{POSITIONS_PATH}/{position_id}/position-openings/{opening_id}"
             api = client()
+            position = await _resolve_position(api, position_id, lookup_ids=False)
+            opening = await _resolve_opening(api, opening_id)
+            check_opening_parent(opening, position)
+            path = f"{POSITIONS_PATH}/{position.id}/position-openings/{opening.id}"
             patched = await api.patch(path, body)
-            result: dict[str, Any] = {"status": "updated"}
+            result: dict[str, Any] = {
+                "status": "updated",
+                "position_id": position.id,
+                "opening_id": opening.id,
+            }
             if isinstance(patched, dict) and patched:
                 result["response"] = patched
             record, problem = await _verify(
-                f"opening {opening_id}",
+                opening.describe(),
                 _read_back(
                     api,
                     OPENING_SEARCH_PATH,
                     OPENING_ID_FIELD,
-                    opening_id,
+                    opening.id,
                     _read_back_fields(
                         OBJECT_TYPE_OPENING, VERIFY_OPENING_FIELDS, fields
                     ),
@@ -2399,21 +2522,22 @@ def register_workforce_planning_tools(
     )
     async def hibob_delete_position_opening(
         position_id: Annotated[
-            str, Field(description="Parent position ID.", min_length=1)
+            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
         ],
         opening_id: Annotated[
-            str, Field(description="ID of the opening to delete.", min_length=1)
+            str, Field(description=OPENING_REF_DESCRIPTION, min_length=1)
         ],
     ) -> str:
         """Permanently remove an opening from a position.
 
         This deletes the vacancy record in HiBob and cannot be undone through
-        this API. Confirm the opening ID with hibob_search_position_openings
-        before calling.
+        this API. Both may be given by numeric ID or by name (P-... and O-...);
+        the opening is looked up first, and one that belongs to a different
+        position than the one given is refused before anything is deleted.
 
         Args:
-            position_id: Parent position ID.
-            opening_id: The opening's ID.
+            position_id: The parent position, by numeric ID or name.
+            opening_id: The opening, by numeric ID or name.
 
         Returns:
             str: JSON confirming the deletion, or an error message beginning
@@ -2422,14 +2546,18 @@ def register_workforce_planning_tools(
         Rate limit: 10 requests/minute.
         """
         try:
-            path = f"{POSITIONS_PATH}/{position_id}/position-openings/{opening_id}"
-            result = await client().delete(path)
+            api = client()
+            position = await _resolve_position(api, position_id, lookup_ids=False)
+            opening = await _resolve_opening(api, opening_id)
+            check_opening_parent(opening, position)
+            path = f"{POSITIONS_PATH}/{position.id}/position-openings/{opening.id}"
+            result = await api.delete(path)
             return _dump(
                 result
                 or {
                     "status": "deleted",
-                    "positionId": position_id,
-                    "positionOpeningId": opening_id,
+                    "positionId": position.id,
+                    "positionOpeningId": opening.id,
                 }
             )
         except Exception as exc:
@@ -2447,7 +2575,7 @@ def register_workforce_planning_tools(
     )
     async def hibob_create_position_budget(
         position_id: Annotated[
-            str, Field(description="Position the budget belongs to.", min_length=1)
+            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
         ],
         fields: Annotated[
             dict[str, Any],
@@ -2465,8 +2593,12 @@ def register_workforce_planning_tools(
     ) -> str:
         """Attach a salary and cost budget to a position.
 
+        The position may be given by numeric ID or by its name (P-...). A
+        position holds one budget, so one that already has a budget is
+        refused; change it with hibob_update_position_budget instead.
+
         Args:
-            position_id: The position's ID.
+            position_id: The position, by numeric ID or name.
             fields: Flat mapping of budget field IDs to values.
 
         Returns:
@@ -2484,12 +2616,15 @@ def register_workforce_planning_tools(
         try:
             validate_required_keys(OBJECT_TYPE_BUDGET, fields, REQUIRED_BUDGET_FIELDS)
             body = build_items_envelope(OBJECT_TYPE_BUDGET, fields)
-            path = f"{POSITIONS_PATH}/{position_id}/position-budget"
             api = client()
+            position = await _resolve_position(api, position_id, lookup_ids=True)
+            refuse_existing_budget(position)
+            path = f"{POSITIONS_PATH}/{position.id}/position-budget"
             created = await api.post(path, body)
             result: dict[str, Any] = (
                 dict(created) if isinstance(created, dict) else {"response": created}
             )
+            result["position_id"] = position.id
             budget_id = result.get("positionBudgetId", result.get("id"))
             problems: list[str] = []
             if budget_id is None:
@@ -2531,24 +2666,33 @@ def register_workforce_planning_tools(
     )
     async def hibob_update_position_budget(
         position_id: Annotated[
-            str, Field(description="Parent position ID.", min_length=1)
-        ],
-        budget_id: Annotated[
-            str, Field(description="ID of the budget to update.", min_length=1)
+            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
         ],
         fields: Annotated[
             dict[str, Any],
             Field(description="Budget fields to change, as a flat mapping."),
         ],
+        budget_id: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "ID of the budget to update. Optional: a position has one "
+                    "budget, which is found from the position. If given, it "
+                    "must be that budget."
+                )
+            ),
+        ] = None,
     ) -> str:
         """Change an existing position budget.
 
-        Use hibob_search_position_budgets to find the budget ID.
+        The budget is found from the position, since a position carries its
+        budget's ID and a budget has no name of its own. A budget_id that
+        belongs to a different position is refused before anything is sent.
 
         Args:
-            position_id: Parent position ID.
-            budget_id: The budget's ID.
+            position_id: The position, by numeric ID or name.
             fields: Flat mapping of field IDs to new values.
+            budget_id: The budget's ID, if the caller wants it checked.
 
         Returns:
             str: JSON confirming the update, or an error message beginning with
@@ -2560,19 +2704,25 @@ def register_workforce_planning_tools(
             if not fields:
                 raise ValueError("Provide at least one field to update.")
             body = build_items_envelope(OBJECT_TYPE_BUDGET, fields)
-            path = f"{POSITIONS_PATH}/{position_id}/position-budget/{budget_id}"
             api = client()
+            position = await _resolve_position(api, position_id, lookup_ids=True)
+            budget = budget_to_write(position, budget_id)
+            path = f"{POSITIONS_PATH}/{position.id}/position-budget/{budget}"
             patched = await api.patch(path, body)
-            result: dict[str, Any] = {"status": "updated"}
+            result: dict[str, Any] = {
+                "status": "updated",
+                "position_id": position.id,
+                "budget_id": budget,
+            }
             if isinstance(patched, dict) and patched:
                 result["response"] = patched
             record, problem = await _verify(
-                f"budget {budget_id}",
+                f"budget {budget}",
                 _read_back(
                     api,
                     BUDGET_SEARCH_PATH,
                     "/positionBudget/id",
-                    budget_id,
+                    budget,
                     _read_back_fields(OBJECT_TYPE_BUDGET, VERIFY_BUDGET_FIELDS, fields),
                     paginated=True,
                 ),
