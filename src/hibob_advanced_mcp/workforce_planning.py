@@ -63,6 +63,7 @@ from .hierarchy import (
     shape_position,
     summarize_tree,
 )
+from .list_values import find_list_field, resolve_list_values
 from .references import (
     OPENING_NAME_FIELD,
     OPENING_REF_FIELDS,
@@ -395,6 +396,21 @@ def _named_list_items(payload: Any) -> list[Any]:
 
 # Cache key for the summary of every list, which no real list ID can collide with.
 ALL_LISTS_CACHE_ID = "*"
+# Metadata shares the named-list cache: both endpoints allow fifty calls a
+# minute, and a field's list is only known from its metadata.
+METADATA_CACHE_PREFIX = "metadata:"
+
+
+async def _fetch_metadata(
+    client: HiBobClient, object_type: str, cache: NamedListCache
+) -> Any:
+    key = (f"{METADATA_CACHE_PREFIX}{object_type}", False)
+    cached = cache.get(key)
+    if cached is not None:
+        return cached
+    payload = await client.get(METADATA_PATHS[object_type])
+    cache.set(key, payload)
+    return payload
 
 
 async def _fetch_named_list(
@@ -1141,7 +1157,7 @@ def register_workforce_planning_tools(
             layout = FORM_LAYOUTS[object_type]
             api = client()
             metadata = await asyncio.gather(
-                *(api.get(METADATA_PATHS[kind]) for kind, _, _ in layout)
+                *(_fetch_metadata(api, kind, cache) for kind, _, _ in layout)
             )
             named_lists: dict[str, list[Any]] = {}
             warnings: list[str] = []
@@ -1275,6 +1291,121 @@ def register_workforce_planning_tools(
                     ),
                 }
             )
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_resolve_list_values",
+        annotations=ToolAnnotations(
+            title="Resolve HiBob list values to IDs",
+            readOnlyHint=True,
+            destructiveHint=False,
+            idempotentHint=True,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_resolve_list_values(
+        field: Annotated[
+            str,
+            Field(
+                description=(
+                    "The list-backed field, as its ID ('/position/field_24133483', "
+                    "'/position/site') or the label HiBob shows ('Locations for "
+                    "hiring', 'Site')."
+                ),
+                min_length=1,
+            ),
+        ],
+        values: Annotated[
+            list[str],
+            Field(
+                description=(
+                    "The option names the user chose, e.g. ['Madrid', 'Lisbon']. "
+                    "An ID passes through unchanged."
+                ),
+                min_length=1,
+            ),
+        ],
+        object_type: Annotated[
+            ObjectTypeLiteral,
+            Field(description="Which object the field belongs to."),
+        ] = "position",
+        include_archived_list_items: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Also match archived list items. HiBob does not accept them "
+                    "in new records."
+                )
+            ),
+        ] = False,
+    ) -> str:
+        """Turn the option names a user chose back into the IDs HiBob wants.
+
+        A form is offered by option name, and what comes back from it is the
+        name; HiBob needs the list item's ID. Use this when only the names
+        survive, after a form round trip, say, and the form response that
+        paired them with IDs is no longer to hand. It finds the list behind
+        the field from the field's metadata, fetches that one list (both
+        cached in this process for five minutes) and matches each name
+        exactly, ignoring case, against the items and, for a tree-shaped
+        list, their path labels. Nothing is written.
+
+        Args:
+            field: The field, by ID or by label.
+            values: The names (or IDs) to resolve.
+            object_type: The object the field belongs to.
+            include_archived_list_items: Also match archived items.
+
+        Returns:
+            str: JSON {"field_id", "field_name", "field_type", "list_id",
+            "multi": bool, "resolved": {name: id}, "values": [id, ...] in
+            the order given, "ambiguous": [{"name", "candidates"}],
+            "unmatched": [{"name", "candidates"}], "complete": bool,
+            "submit": str}; or an error message beginning with "Error:".
+            When "complete" is false, put the candidates to the user rather
+            than guessing.
+
+        Examples:
+            - The user picked "Madrid, Lisbon" on a form for "Locations for
+              hiring" -> field='Locations for hiring', values=['Madrid',
+              'Lisbon'], then submit the returned 'values' for the field.
+            - Don't use when: the form response with the option IDs is still
+              available; take the IDs from it directly.
+
+        Rate limit: metadata and named lists 50 requests/minute each; this
+        uses at most one of each, and none when cached.
+        """
+        try:
+            api = client()
+            metadata = await _fetch_metadata(api, object_type, cache)
+            list_field = find_list_field(object_type, metadata, field)
+            items = await _fetch_named_list(
+                api, list_field.list_id, include_archived_list_items, cache
+            )
+            result: dict[str, Any] = {
+                "object_type": object_type,
+                "field_id": list_field.field_id,
+                "field_name": list_field.name,
+                "field_type": list_field.type,
+                "list_id": list_field.list_id,
+                "multi": list_field.multi,
+                **resolve_list_values(items, values),
+            }
+            if list_field.multi:
+                result["submit"] = (
+                    f"Submit every ID as a list: {{'{list_field.field_id}': values}}."
+                )
+            else:
+                result["submit"] = (
+                    f"Submit one ID: {{'{list_field.field_id}': values[0]}}."
+                )
+            if not result["complete"]:
+                result["note"] = (
+                    "Some names did not match exactly one item. Put the "
+                    "candidates to the user, then call again with their choice."
+                )
+            return _dump(result)
         except Exception as exc:
             return format_exception(exc)
 

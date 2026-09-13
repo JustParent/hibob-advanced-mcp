@@ -10,6 +10,7 @@ READ_TOOLS = {
     "hibob_list_workforce_fields",
     "hibob_get_workforce_form",
     "hibob_get_company_named_lists",
+    "hibob_resolve_list_values",
     "hibob_get_openings_for_positions",
     "hibob_get_positions_under",
     "hibob_search_positions",
