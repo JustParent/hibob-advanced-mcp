@@ -56,7 +56,9 @@ from .forms import (
 )
 from .hierarchy import (
     HIERARCHY_FIELDS,
+    POSITION_FILLED_BY_FIELD,
     RESOLVED_BY_EMAIL,
+    RESOLVED_BY_PARTIAL_NAME,
     counts_by_status,
     positions_under,
     resolve_root,
@@ -800,6 +802,14 @@ def _serialize_filters(filters: list[SearchFilter] | None) -> list[dict[str, Any
     return [f.to_payload() for f in (filters or [])]
 
 
+# HiBob leaves "/position/filledBy" out of some filled positions' rows unless
+# "/position/actualStartDate" is requested in the same search: 4 of the
+# sandbox's 697 filled positions, P-0000000368 among them, checked 2026-09-23.
+# Asking for either field alone gets nothing for those 4. Opening searches
+# return "/positionOpening/filledBy" either way.
+POSITION_ACTUAL_START_DATE_FIELD = "/position/actualStartDate"
+
+
 def _search_body(
     fields: list[str],
     filters: list[SearchFilter] | None,
@@ -814,8 +824,15 @@ def _search_body(
         raise ValueError(
             f"HiBob accepts at most 50 fields per search; {len(fields)} were given."
         )
+    fields = list(fields)
+    if (
+        POSITION_FILLED_BY_FIELD in fields
+        and POSITION_ACTUAL_START_DATE_FIELD not in fields
+        and len(fields) < MAX_SEARCH_FIELDS
+    ):
+        fields.append(POSITION_ACTUAL_START_DATE_FIELD)
     return {
-        "fields": list(fields),
+        "fields": fields,
         "filters": _serialize_filters(filters),
         "includeHumanReadable": include_human_readable,
     }
@@ -1349,6 +1366,11 @@ def register_workforce_planning_tools(
             - "Which positions are vacant?" -> fields=['/position/id',
               '/position/name'], filters=[{field_id: '/position/status',
               operator: 'equals', values: ['vacant']}]
+            - "Who holds P-0000000368?" -> fields=['/position/name',
+              '/position/status', '/position/filledBy'],
+              filters=[{field_id: '/position/name', operator: 'equals',
+              values: ['P-0000000368']}]; '/position/filledBy' is the
+              holder's employee ID, with their name in 'display'.
             - Don't use when: you need opening-level detail such as expected
               start dates (use hibob_search_position_openings).
 
@@ -1643,7 +1665,9 @@ def register_workforce_planning_tools(
         position is found by ID, by position name, by the holder's employee
         ID, by the holder's work email (one narrow lookup of the employee ID,
         nothing else) or by the holder's name; a name that fits several people
-        returns candidates instead. Everything beneath it is then listed depth first,
+        returns candidates instead, and so does a name no holder has in full
+        (up to five holders sharing part of it, none of them the person
+        asked for). Everything beneath it is then listed depth first,
         each position with its status (filled, vacant, starting), who fills
         it, and its own manager position so the tree can be redrawn.
 
@@ -1704,6 +1728,19 @@ def register_workforce_planning_tools(
                     f"No position matches {position!r}. Give a position ID, a "
                     "position name such as 'P-0000000157', the holder's HiBob "
                     "employee ID, or the holder's name as it appears in HiBob."
+                )
+            if resolved_by == RESOLVED_BY_PARTIAL_NAME:
+                return _dump(
+                    {
+                        "query": position,
+                        "candidates": matches[:NEAR_MISSES_TO_NAME],
+                        "note": (
+                            f"No position holder is called {position!r}. These "
+                            "holders share part of the name; call again with the "
+                            "position ID of one of them only if it is the person "
+                            "meant."
+                        ),
+                    }
                 )
             if len(matches) > 1:
                 return _dump(

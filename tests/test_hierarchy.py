@@ -78,6 +78,20 @@ def test_resolve_root_tries_id_name_employee_id_then_holder_words() -> None:
     assert resolve_root(POSITIONS, "  ") == ([], "position_id")
 
 
+def test_resolve_root_marks_a_name_no_holder_has_in_full_as_partial() -> None:
+    """Sharing a first name is not being the person asked for: a query no
+    holder matches in full is marked partial so it is not taken as found."""
+    assert resolve_root(POSITIONS, "sam smith") == (
+        [POSITIONS[1]],
+        "partial_holder_name",
+    )
+    assert resolve_root(POSITIONS, "jane smith") == (
+        [POSITIONS[0], POSITIONS[2]],
+        "partial_holder_name",
+    )
+    assert resolve_root(POSITIONS, "sa roe") == ([POSITIONS[1]], "holder_name")
+
+
 def test_positions_under_walks_depth_first_with_depths() -> None:
     assert [(p["id"], p["depth"]) for p in positions_under(POSITIONS, "1")] == [
         ("2", 1),

@@ -10,7 +10,7 @@ import respx
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 
-from conftest import call_tool
+from conftest import call_tool, hibob_position_search
 
 
 async def test_metadata_routes_per_object_type(
@@ -668,6 +668,95 @@ async def test_position_search_query_needs_every_word_and_names_near_misses(
     assert result["entries"] == []
     assert "No position matches every word" in result["note"]
     assert "Madrid - Office" in result["note"]
+
+
+# ----------------------------------------------- who holds a position
+
+
+async def test_position_search_for_the_holder_names_them(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob leaves some filled positions' holder out unless the actual
+    start date is asked for too, so a search for the holder asks for both."""
+    route = mock_api.post("/objects/position/search").mock(
+        side_effect=hibob_position_search(TITLES)
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_positions",
+            {
+                "fields": ["/position/name", "/position/filledBy"],
+                "filters": [
+                    {
+                        "field_id": "/position/name",
+                        "operator": "equals",
+                        "values": ["P-7"],
+                    }
+                ],
+            },
+        )
+    )
+
+    body = json.loads(route.calls.last.request.content)
+    assert "/position/actualStartDate" in body["fields"]
+    holders = {
+        e["values"]["/position/name"]: e["display"].get("/position/filledBy")
+        for e in result["entries"]
+    }
+    assert holders["P-7"] == "Stina Grahn"
+
+
+async def test_position_search_query_finds_a_holder_hibob_returns_with_the_start_date(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    mock_api.post("/objects/position/search").mock(
+        side_effect=hibob_position_search(TITLES)
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_search_positions",
+            {"fields": ["/position/id"], "query": "ana ruiz"},
+        )
+    )
+
+    assert [e["values"]["/position/id"] for e in result["entries"]] == [9]
+
+
+async def test_position_search_without_the_holder_sends_the_fields_as_given(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.post("/objects/position/search").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_search_positions",
+        {"fields": ["/position/id", "/position/status"]},
+    )
+
+    body = json.loads(route.calls.last.request.content)
+    assert body["fields"] == ["/position/id", "/position/status"]
+
+
+async def test_position_search_at_the_field_limit_is_not_pushed_over_it(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """With no room for the start date, the fields go as given rather than
+    a search that worked becoming one HiBob refuses."""
+    fields = ["/position/filledBy", *(f"/position/field_{n}" for n in range(49))]
+    route = mock_api.post("/objects/position/search").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    result = await call_tool(mcp_server, "hibob_search_positions", {"fields": fields})
+
+    assert not result.startswith("Error:")
+    assert json.loads(route.calls.last.request.content)["fields"] == fields
 
 
 # ------------------------------------------------------------- position costs
