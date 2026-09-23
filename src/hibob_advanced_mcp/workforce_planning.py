@@ -42,7 +42,10 @@ from .envelopes import (
 )
 from .errors import HiBobApiError, format_exception
 from .forms import (
+    DEPARTMENT_FIELD,
     FORM_INSTRUCTIONS,
+    JOB_PROFILE_FIELD,
+    MANAGER_POSITION_FIELD,
     MAX_OPTIONS_PER_LIST,
     READ_ONLY_FIELDS,
     REQUIRED_FIELDS,
@@ -267,6 +270,25 @@ FORM_LAYOUTS: dict[str, tuple[tuple[str, str, str], ...]] = {
     OBJECT_TYPE_OPENING: ((OBJECT_TYPE_OPENING, "primary", "fields"),),
     OBJECT_TYPE_BUDGET: ((OBJECT_TYPE_BUDGET, "primary", "fields"),),
 }
+# What a new position form can take from an existing position. The seat's own
+# record (its holder, openings, budget and dates) is never copied. Department,
+# job profile and manager go in as narrowing hints, so they arrive with their
+# options; the rest are pre-filled as they are. Each value is the list item ID
+# HiBob's form lists use (checked against the sandbox on 2026-09-23).
+TEMPLATE_HINT_FIELDS = (DEPARTMENT_FIELD, JOB_PROFILE_FIELD, MANAGER_POSITION_FIELD)
+TEMPLATE_VALUE_FIELDS = (
+    "/position/site",
+    "/position/positionType",
+    "/position/employmentType",
+    "/position/fte",
+)
+TEMPLATE_POSITION_FIELDS = (
+    "/position/id",
+    "/position/name",
+    "/position/position",
+    *TEMPLATE_HINT_FIELDS,
+    *TEMPLATE_VALUE_FIELDS,
+)
 FORM_SUBMIT_TOOLS = {
     OBJECT_TYPE_POSITION: "hibob_create_position",
     OBJECT_TYPE_OPENING: "hibob_create_position_opening",
@@ -613,6 +635,31 @@ async def _resolve_position(
     rows = _raw_rows(payload, "positionEntries")
     row = single_match(rows, "position", clause["values"][0], id_field="/position/id")
     return PositionRef.from_row(row)
+
+
+async def _template_position(client: HiBobClient, value: Any) -> dict[str, Any]:
+    """The existing position a new position form is based on, by ID or name."""
+    clause = reference_filter(
+        value, id_field="/position/id", name_field=POSITION_NAME_FIELD
+    )
+    payload = await client.search(
+        POSITION_SEARCH_PATH,
+        {
+            "fields": list(TEMPLATE_POSITION_FIELDS),
+            "filters": [clause],
+            "includeHumanReadable": True,
+        },
+    )
+    rows = _raw_rows(payload, "positionEntries")
+    return single_match(rows, "position", clause["values"][0], id_field="/position/id")
+
+
+def _template_cell(row: dict[str, Any], field_id: str) -> tuple[Any, Any]:
+    """A template position's value for a field, and its label."""
+    cell = row.get(field_id)
+    if isinstance(cell, dict):
+        return cell.get("value"), cell.get("humanReadable")
+    return cell, None
 
 
 async def _resolve_opening(client: HiBobClient, value: Any) -> OpeningRef:
@@ -1096,6 +1143,19 @@ def register_workforce_planning_tools(
                 )
             ),
         ] = None,
+        based_on_position: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Position form only: an existing position the new one is "
+                    "modelled on, by position ID or name (P-...). Its department, "
+                    "job profile, manager, site, position type, employment type "
+                    "and FTE are pre-filled; department, job_profile and manager "
+                    "given here take precedence. Not for backfilling that "
+                    "position: add an opening to it instead."
+                )
+            ),
+        ] = None,
         max_options: Annotated[
             int,
             Field(
@@ -1137,6 +1197,13 @@ def register_workforce_planning_tools(
         "questions" instead of "sections": ask them, then call again with the
         answers.
 
+        Backfilling someone who is leaving is not a new position: the seat
+        already exists, so use object_type='positionOpening' and add an
+        opening to their position. The opening belongs to that position, so it
+        keeps its manager, department, site, job profile and budget, and none
+        of them need asking about. A genuinely new position modelled on an
+        existing one takes based_on_position, which pre-fills what they share.
+
         Use this before hibob_create_position, hibob_create_position_opening
         or hibob_create_position_budget. It replaces a chain of
         hibob_list_workforce_fields and hibob_get_company_named_lists calls.
@@ -1146,6 +1213,8 @@ def register_workforce_planning_tools(
             department: Department name or ID (position form only).
             job_profile: Rough role description or title (position form only).
             manager: Manager's name, position name or ID (position form only).
+            based_on_position: Existing position to pre-fill from (position
+                form only).
             max_options: Most options to inline per field.
             include_archived_list_items: Include archived list items.
 
@@ -1166,6 +1235,11 @@ def register_workforce_planning_tools(
               job_profile='backend engineer', manager='Jane Doe'
             - "Add another opening to position 4821" ->
               object_type='positionOpening'
+            - "Simon is leaving; backfill him" -> find his position (e.g. with
+              hibob_get_positions_under), then object_type='positionOpening'
+              and hibob_create_position_opening on that position
+            - "Another engineer like P-0000000358" ->
+              object_type='position', based_on_position='P-0000000358'
 
         Rate limit: metadata 50 requests/minute; one metadata request per
         section plus one named-lists request per list a field draws from.
@@ -1185,19 +1259,55 @@ def register_workforce_planning_tools(
                 )
             overrides: dict[str, dict[str, Any]] = {}
             questions: list[dict[str, Any]] = []
+            based_on: dict[str, Any] | None = None
             if object_type == OBJECT_TYPE_POSITION:
+                template: dict[str, Any] = {}
+                if based_on_position:
+                    template = await _template_position(api, based_on_position)
+
+                def hint(given: str | None, field_id: str) -> str | None:
+                    if given or not template:
+                        return given
+                    value, _ = _template_cell(template, field_id)
+                    return None if value is None else normalize_id(value)
+
                 overrides, questions = narrow_position_lists(
                     metadata[0],
                     named_lists,
-                    department=department,
-                    job_profile=job_profile,
-                    manager=manager,
+                    department=hint(department, DEPARTMENT_FIELD),
+                    job_profile=hint(job_profile, JOB_PROFILE_FIELD),
+                    manager=hint(manager, MANAGER_POSITION_FIELD),
                     max_options=max_options,
                 )
+                if template:
+                    for field_id in TEMPLATE_VALUE_FIELDS:
+                        value, label = _template_cell(template, field_id)
+                        if value is not None:
+                            overrides[field_id] = {
+                                **overrides.get(field_id, {}),
+                                "value": value,
+                                "value_name": label if label is not None else value,
+                            }
+                    position_id, _ = _template_cell(template, "/position/id")
+                    name, _ = _template_cell(template, "/position/name")
+                    title, _ = _template_cell(template, "/position/position")
+                    based_on = {
+                        "id": normalize_id(position_id),
+                        "name": name,
+                        "position": title,
+                        "note": (
+                            f"Pre-filled from {name}: department, job profile, "
+                            "manager, site, position type, employment type and "
+                            "FTE. Its holder, openings and budget are not "
+                            "copied. Confirm the pre-filled values with the user."
+                        ),
+                    }
             result: dict[str, Any] = {
                 "form": object_type,
                 "submit_with": FORM_SUBMIT_TOOLS[object_type],
             }
+            if based_on:
+                result["based_on"] = based_on
             if questions:
                 result["questions"] = questions
                 result["note"] = (
@@ -2249,8 +2359,9 @@ def register_workforce_planning_tools(
             - "Plan a new engineer starting in September" -> position_fields
               with effectiveDate/fte/department/site/jobProfile plus
               opening_fields with expectedStartDate.
-            - Don't use when: adding a second vacancy to an existing position
-              (use hibob_create_position_opening).
+            - Don't use when: adding a second vacancy to an existing position,
+              including backfilling someone who is leaving it (use
+              hibob_create_position_opening on their position).
 
         Rate limit: 10 requests/minute.
         """
@@ -2531,6 +2642,13 @@ def register_workforce_planning_tools(
         ],
     ) -> str:
         """Add a vacancy to an existing position.
+
+        This is how a backfill is planned: the leaver's position gets a new
+        opening. The opening belongs to that position, so it keeps the
+        position's manager, department, site, job profile and budget; do not
+        ask about them or create a new position. Check the position's existing
+        openings first (hibob_get_openings_for_positions), as a vacancy may
+        already be open.
 
         Args:
             position_id: The parent position, by numeric ID or name (P-...).
