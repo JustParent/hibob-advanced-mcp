@@ -9,7 +9,7 @@ import httpx
 import respx
 from mcp.server.fastmcp import FastMCP
 
-from conftest import call_tool
+from conftest import call_tool, hibob_position_search
 
 OPENINGS_SEARCH = "/positions/position-openings/search"
 POSITION_META = "/metadata/objects/position"
@@ -968,6 +968,36 @@ async def test_positions_under_scans_once_and_walks_the_tree(
     assert result["counts_by_status"] == {"filled": 1, "starting": 1, "vacant": 1}
 
 
+async def test_positions_under_names_holders_hibob_returns_with_the_start_date(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob leaves some filled positions' holder out unless the actual
+    start date is asked for too; without it a filled position reads as
+    held by nobody and its holder cannot be found by name."""
+    mock_api.post(POSITION_SEARCH).mock(side_effect=hibob_position_search(COMPANY))
+
+    by_position = json.loads(
+        await call_tool(mcp_server, "hibob_get_positions_under", {"position": "P-11"})
+    )
+
+    assert by_position["root"]["holder"] == "Jane Doe"
+    assert by_position["root"]["holder_id"] == "100"
+    assert [(p["id"], p["holder"]) for p in by_position["positions"]] == [
+        ("12", "Sam Roe"),
+        ("14", None),
+        ("13", "Jane Poe"),
+    ]
+
+    by_holder = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_positions_under", {"position": "Sam Roe"}
+        )
+    )
+
+    assert by_holder["root"]["id"] == "12"
+    assert by_holder["resolved_by"] == "holder_name"
+
+
 async def test_positions_under_limits_depth_to_direct_reports(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
@@ -1025,6 +1055,44 @@ async def test_positions_under_returns_candidates_for_an_ambiguous_name(
     assert [c["id"] for c in result["candidates"]] == ["11", "13"]
     assert [c["holder"] for c in result["candidates"]] == ["Jane Doe", "Jane Poe"]
     assert "position ID" in result["note"]
+
+
+async def test_positions_under_does_not_take_a_shared_first_name_as_the_person(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """Nobody is called Sam Smith; Sam Roe shares a word of it. He is offered
+    as a candidate, not presented as Sam Smith's position."""
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=COMPANY))
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_positions_under", {"position": "Sam Smith"}
+        )
+    )
+
+    assert "root" not in result
+    assert "positions" not in result
+    assert [c["holder"] for c in result["candidates"]] == ["Sam Roe"]
+    assert "Sam Smith" in result["note"]
+    assert "position ID" in result["note"]
+
+
+async def test_positions_under_names_at_most_five_partial_candidates(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    sams = [
+        _position_row(100 + n, f"P-{100 + n}", holder=f"Sam Roe{n}", holder_id=n)
+        for n in range(7)
+    ]
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=sams))
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_positions_under", {"position": "Sam Smith"}
+        )
+    )
+
+    assert len(result["candidates"]) == 5
 
 
 async def test_positions_under_reports_no_match_as_an_error(

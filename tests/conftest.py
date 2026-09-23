@@ -5,6 +5,11 @@ Every test runs against a mocked HiBob API; nothing here touches the network.
 
 from __future__ import annotations
 
+import json
+from collections.abc import Callable
+from typing import Any
+
+import httpx
 import pytest
 import respx
 from mcp.server.fastmcp import FastMCP
@@ -83,6 +88,25 @@ def server_factory(client: HiBobClient):
 @pytest.fixture
 def mcp_server(server_factory) -> FastMCP:
     return server_factory()
+
+
+def hibob_position_search(
+    rows: list[dict[str, Any]],
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Answer a position search as HiBob does: with only the fields asked for,
+    and without "/position/filledBy" unless "/position/actualStartDate" was
+    asked for too, which is how HiBob leaves some filled positions' holder
+    out."""
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        fields = set(json.loads(request.content)["fields"])
+        if "/position/actualStartDate" not in fields:
+            fields.discard("/position/filledBy")
+        return httpx.Response(
+            200, json=[{k: v for k, v in row.items() if k in fields} for row in rows]
+        )
+
+    return respond
 
 
 async def call_tool(mcp: FastMCP, name: str, arguments: dict | None = None) -> str:

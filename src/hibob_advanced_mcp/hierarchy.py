@@ -43,6 +43,8 @@ RESOLVED_BY_POSITION_ID = "position_id"
 RESOLVED_BY_POSITION_NAME = "position_name"
 RESOLVED_BY_EMPLOYEE_ID = "employee_id"
 RESOLVED_BY_HOLDER_NAME = "holder_name"
+# No holder has every word of the name asked for; these share some of it.
+RESOLVED_BY_PARTIAL_NAME = "partial_holder_name"
 RESOLVED_BY_EMAIL = "email"
 
 
@@ -100,7 +102,9 @@ def resolve_root(
 
     Tries a position ID, then a position name, then the holder's employee
     ID, then words of the holder's name. Several matches mean the caller
-    must choose; none means nothing was found.
+    must choose; none means nothing was found. When no holder has every word
+    of the name, the holders sharing some of it come back, best first, marked
+    :data:`RESOLVED_BY_PARTIAL_NAME`: none of them is the person asked for.
     """
     text = str(query or "").strip()
     if not text:
@@ -120,10 +124,16 @@ def resolve_root(
     leaves = [
         {"id": p["id"], "name": p["holder"]} for p in positions if p.get("holder")
     ]
-    order = {leaf["id"]: rank for rank, leaf in enumerate(rank_matches(leaves, text))}
+    resolved_by = RESOLVED_BY_HOLDER_NAME
+    ranked = rank_matches(leaves, text, require_all=True)
+    if not ranked:
+        ranked = rank_matches(leaves, text)
+        if ranked:
+            resolved_by = RESOLVED_BY_PARTIAL_NAME
+    order = {leaf["id"]: rank for rank, leaf in enumerate(ranked)}
     matched = [p for p in positions if p.get("id") in order]
     matched.sort(key=lambda p: order[p["id"]])
-    return matched, RESOLVED_BY_HOLDER_NAME
+    return matched, resolved_by
 
 
 def positions_under(
