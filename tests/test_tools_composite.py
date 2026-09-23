@@ -751,6 +751,92 @@ async def test_narrowing_arguments_are_ignored_for_other_forms(
     assert [s["object_type"] for s in result["sections"]] == ["positionBudget"]
 
 
+# ------------------------------------------- a position form based on another
+
+
+def _template(site: int = 20) -> dict[str, Any]:
+    """P-0002: Sam Roe's data scientist seat, reporting to Jane Doe's."""
+    return {
+        "/position/id": {"value": 7002, "humanReadable": "7002"},
+        "/position/name": {"value": "P-0002", "humanReadable": "P-0002"},
+        "/position/position": {
+            "value": "Data Scientist / Data / London",
+            "humanReadable": "Data Scientist / Data / London",
+        },
+        "/position/department": {"value": 1, "humanReadable": "Data"},
+        "/position/jobProfile": {"value": 101, "humanReadable": "C Data Scientist"},
+        "/position/managerPositionId": {"value": 5001, "humanReadable": "Jane Doe"},
+        "/position/site": {"value": site, "humanReadable": "London"},
+        "/position/fte": {"value": 80, "humanReadable": "80"},
+    }
+
+
+async def test_position_form_based_on_a_position_prefills_what_it_shares(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """A new position like an existing one reports to the same manager, in
+    the same department, site and job profile, without anyone being asked."""
+    _mock_narrowing(mock_api)
+    search = mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=[_template()])
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server, "hibob_get_workforce_form", {"based_on_position": "P-0002"}
+        )
+    )
+
+    assert json.loads(search.calls.last.request.content)["filters"] == [
+        {"fieldId": "/position/name", "operator": "equals", "values": ["P-0002"]}
+    ]
+    assert "questions" not in result
+    position = _fields(_sections(result)["position"])
+    assert position["/position/department"]["value"] == 1
+    assert position["/position/jobProfile"]["value"] == 101
+    assert position["/position/managerPositionId"]["value"] == 5001
+    assert position["/position/site"]["value"] == 20
+    assert position["/position/site"]["value_name"] == "London"
+    assert position["/position/fte"]["value"] == 80
+    assert result["based_on"]["name"] == "P-0002"
+    assert result["based_on"]["id"] == "7002"
+
+
+async def test_position_form_takes_what_the_user_said_over_the_template(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_narrowing(mock_api)
+    mock_api.post(POSITION_SEARCH).mock(
+        return_value=httpx.Response(200, json=[_template()])
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_workforce_form",
+            {"based_on_position": "P-0002", "manager": "alex poe"},
+        )
+    )
+
+    position = _fields(_sections(result)["position"])
+    assert position["/position/managerPositionId"]["value"] == 6001
+    assert position["/position/department"]["value"] == 1
+
+
+async def test_position_form_based_on_an_unknown_position_is_an_error(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    _mock_narrowing(mock_api)
+    mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(200, json=[]))
+
+    result = await call_tool(
+        mcp_server, "hibob_get_workforce_form", {"based_on_position": "P-9999"}
+    )
+
+    assert result.startswith("Error:")
+    assert "P-9999" in result
+
+
 # ------------------------------------------------------- named-list caching
 
 
