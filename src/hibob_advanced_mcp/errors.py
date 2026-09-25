@@ -1,9 +1,10 @@
 """HiBob API error handling.
 
-HiBob returns errors as ``{"key": ..., "error": ...}``, and some as
-``{"errorMessage": ...}``. These are translated into messages that tell the
-caller what to change, following the convention of naming the exact HiBob
-permission path when access is denied.
+HiBob returns errors as ``{"key": ..., "error": ...}``, some as
+``{"errorMessage": ...}``, and a rejected field under ``{"errors": {field ID:
+...}}``. These are translated into messages that tell the caller what to
+change, following the convention of naming the exact HiBob permission path
+when access is denied.
 """
 
 from __future__ import annotations
@@ -19,6 +20,18 @@ MANAGE_POSITIONS_PERMISSION_PATH = (
 )
 BUDGET_PERMISSION_PATH = (
     "Features > Workforce planning > Position management > Position budget settings"
+)
+
+TOTAL_COST_FIELD = "/positionBudget/totalPositionCostCurrencyValue"
+# HiBob's UI calculates the total position cost; its API does not, and some
+# accounts make the field mandatory.
+TOTAL_COST_NOTE = (
+    "HiBob works out the total position cost from multipliers in its own "
+    "configuration, which its API cannot read. A figure can be inferred by "
+    "inspecting other positions' budgets, though which multiplier applies can "
+    "depend on more than the position's site; only HiBob's configuration is "
+    "authoritative. Ask the user for the figure, and never submit an inferred "
+    "one without their approval."
 )
 
 RATE_LIMITS_SUMMARY = (
@@ -57,6 +70,22 @@ def _parse_error_body(response: httpx.Response) -> tuple[str | None, str | None]
     if isinstance(body, dict):
         key = body.get("key")
         error = body.get("error") or body.get("message") or body.get("errorMessage")
+        errors = body.get("errors")
+        if not isinstance(error, str) and isinstance(errors, dict):
+            # HiBob names each field it rejects, keyed by field ID:
+            # {"errors": {"/positionBudget/...": {"error": "MISSING_MANDATORY_FIELD",
+            # "message": "Missing mandatory field '/positionBudget/...'"}}}
+            entries = [entry for entry in errors.values() if isinstance(entry, dict)]
+            error = (
+                "; ".join(
+                    str(entry.get("message") or entry.get("error"))
+                    for entry in entries
+                    if entry.get("message") or entry.get("error")
+                )
+                or None
+            )
+            if key is None and entries:
+                key = entries[0].get("error")
         return (
             key if isinstance(key, str) else None,
             error if isinstance(error, str) else None,
@@ -140,10 +169,21 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             f"HiBob rate limit exceeded (429). Wait {_retry_after_seconds(response)} "
             f"seconds before retrying. Limits are {RATE_LIMITS_SUMMARY}."
         )
+    elif (
+        status == 400
+        and detail
+        and key == "MISSING_MANDATORY_FIELD"
+        and TOTAL_COST_FIELD in detail
+    ):
+        message = (
+            f"HiBob rejected the request as invalid (400): {detail.rstrip('.')}. "
+            "This HiBob account requires the total position cost on a budget, "
+            f"and nothing was written. {TOTAL_COST_NOTE}"
+        )
     elif status == 400:
         message = (
             "HiBob rejected the request as invalid (400)"
-            + (f": {detail}" if detail else ".")
+            + (f": {detail.rstrip('.')}." if detail else ".")
             + " Use hibob_list_workforce_fields to confirm field IDs and required "
             "values, and hibob_get_company_named_lists to resolve list item IDs."
         )

@@ -40,7 +40,12 @@ from .envelopes import (
     normalize_id,
     validate_required_keys,
 )
-from .errors import BUDGET_PERMISSION_PATH, HiBobApiError, format_exception
+from .errors import (
+    BUDGET_PERMISSION_PATH,
+    TOTAL_COST_NOTE,
+    HiBobApiError,
+    format_exception,
+)
 from .forms import (
     DEPARTMENT_FIELD,
     FORM_INSTRUCTIONS,
@@ -749,15 +754,15 @@ async def _verify_nested_budget(
     problems: list[str],
 ) -> None:
     """Read back the budget sent with a new position, or report that it is
-    missing. HiBob creates it only if the service user may create budgets, and
-    otherwise skips it without an error while still creating the position."""
+    missing. HiBob can skip it without an error while still creating the
+    position, as it does when the service user may not create budgets."""
     budget_id = (position.get("values") or {}).get(POSITION_BUDGET_REF_FIELD)
     if budget_id is None:
         problems.append(
-            "the budget was not created: HiBob creates a budget sent with a new "
-            "position only if the service user has the permission "
-            f"{BUDGET_PERMISSION_PATH}, and otherwise skips it without an error. "
-            "Grant it, then add the budget with hibob_create_position_budget"
+            "the budget was not created: HiBob skips a budget sent with a new "
+            "position without an error, as it does when the service user lacks "
+            f"the permission {BUDGET_PERMISSION_PATH}. Add it with "
+            "hibob_create_position_budget, which reports HiBob's reason"
         )
         return
     record, problem = await _verify(
@@ -2380,7 +2385,10 @@ def register_workforce_planning_tools(
                 description=(
                     "Optional budget. If given, requires "
                     '"/positionBudget/salaryPayPeriod" and '
-                    '"/positionBudget/currency".'
+                    '"/positionBudget/currency". A HiBob account can make more '
+                    "budget fields mandatory, such as "
+                    '"/positionBudget/totalPositionCostCurrencyValue". '
+                    + TOTAL_COST_NOTE
                 )
             ),
         ] = None,
@@ -2926,7 +2934,10 @@ def register_workforce_planning_tools(
                     '"Monthly") and "/positionBudget/currency" (e.g. "GBP"). '
                     "Optional: expectedBaseSalaryCurrencyValue, "
                     "totalPositionCostCurrencyValue, "
-                    "expectedVariablePayCurrencyValue, variablePayPeriod."
+                    "expectedVariablePayCurrencyValue, variablePayPeriod. A HiBob "
+                    "account can make more of these mandatory, such as "
+                    "totalPositionCostCurrencyValue; HiBob's error then names them. "
+                    + TOTAL_COST_NOTE
                 )
             ),
         ],

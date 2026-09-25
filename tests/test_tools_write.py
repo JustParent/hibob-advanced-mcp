@@ -11,7 +11,7 @@ import respx
 from mcp.server.fastmcp import FastMCP
 
 from conftest import call_tool, hibob_position_search
-from hibob_advanced_mcp.errors import BUDGET_PERMISSION_PATH
+from hibob_advanced_mcp.errors import BUDGET_PERMISSION_PATH, TOTAL_COST_NOTE
 
 POSITION_FIELDS = {
     "/position/effectiveDate": "2026-09-01",
@@ -287,6 +287,23 @@ async def test_delete_opening_targets_nested_url(
 
     assert route.called
     assert json.loads(result)["status"] == "deleted"
+
+
+@pytest.mark.parametrize(
+    ("tool", "argument"),
+    [
+        ("hibob_create_position", "budget_fields"),
+        ("hibob_create_position_budget", "fields"),
+    ],
+)
+async def test_budget_fields_say_only_hibob_can_settle_a_total_cost(
+    mcp_server: FastMCP, tool: str, argument: str
+) -> None:
+    """A caller should ask for the total position cost up front rather than
+    assume HiBob calculates it, as its UI does."""
+    tools = {t.name: t for t in await mcp_server.list_tools()}
+    description = tools[tool].inputSchema["properties"][argument]["description"]
+    assert TOTAL_COST_NOTE in description
 
 
 async def test_create_budget_requires_pay_period_and_currency(

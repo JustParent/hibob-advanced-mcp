@@ -8,6 +8,7 @@ import pytest
 from hibob_advanced_mcp.errors import (
     BUDGET_PERMISSION_PATH,
     MANAGE_POSITIONS_PERMISSION_PATH,
+    TOTAL_COST_NOTE,
     HiBobApiError,
     format_exception,
     raise_for_hibob_error,
@@ -115,6 +116,39 @@ def test_400_passes_through_hibob_validation_detail() -> None:
         )
     assert "fte is required" in str(excinfo.value)
     assert excinfo.value.hibob_key == "missing_field"
+
+
+# The body HiBob sent for a budget its account requires a total cost on.
+MISSING_TOTAL_COST = {
+    "errors": {
+        "/positionBudget/totalPositionCostCurrencyValue": {
+            "error": "MISSING_MANDATORY_FIELD",
+            "message": "Missing mandatory field "
+            "'/positionBudget/totalPositionCostCurrencyValue'",
+        }
+    }
+}
+
+
+def test_400_passes_through_the_errors_hibob_names_by_field() -> None:
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(_response(400, MISSING_TOTAL_COST, url=BUDGET_WRITE_URL))
+    assert (
+        "Missing mandatory field '/positionBudget/totalPositionCostCurrencyValue'"
+        in str(excinfo.value)
+    )
+    assert excinfo.value.hibob_key == "MISSING_MANDATORY_FIELD"
+
+
+def test_400_for_a_missing_total_cost_says_only_hibob_can_settle_the_figure() -> None:
+    """The total can be inferred from other budgets, but HiBob's configuration,
+    which the API cannot read, is the only authority on it."""
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(_response(400, MISSING_TOTAL_COST, url=BUDGET_WRITE_URL))
+    message = str(excinfo.value)
+    assert "nothing was written" in message
+    assert TOTAL_COST_NOTE in message
+    assert "hibob_list_workforce_fields" not in message
 
 
 def test_500_is_described_as_transient() -> None:
