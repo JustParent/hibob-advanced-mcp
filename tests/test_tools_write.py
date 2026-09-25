@@ -6,10 +6,12 @@ import json
 from typing import Any
 
 import httpx
+import pytest
 import respx
 from mcp.server.fastmcp import FastMCP
 
-from conftest import call_tool
+from conftest import call_tool, hibob_position_search
+from hibob_advanced_mcp.errors import BUDGET_PERMISSION_PATH
 
 POSITION_FIELDS = {
     "/position/effectiveDate": "2026-09-01",
@@ -405,11 +407,22 @@ def _opening_row(opening_id: int, position_id: int, **extra: object) -> dict[str
     return row
 
 
+# What HiBob sends back for a created position: a list, one entry per item
+# written, naming the position "positionId". Its API reference documents a
+# single object, {"id": ..., "positionOpeningId": ...}, instead.
+CREATED_POSITION = [{"positionId": 1, "positionOpeningId": 2}]
+
+
+@pytest.mark.parametrize(
+    "created",
+    [CREATED_POSITION, {"id": 1, "positionOpeningId": 2}],
+    ids=["as-sent", "as-documented"],
+)
 async def test_create_position_reads_back_the_position_and_its_opening(
-    mcp_server: FastMCP, mock_api: respx.MockRouter
+    mcp_server: FastMCP, mock_api: respx.MockRouter, created: Any
 ) -> None:
     mock_api.post("/workforce-planning/positions").mock(
-        return_value=httpx.Response(200, json={"id": 1, "positionOpeningId": 2})
+        return_value=httpx.Response(200, json=created)
     )
     positions = mock_api.post(POSITION_SEARCH).mock(
         return_value=httpx.Response(200, json=[_position_row(1, **POSITION_FIELDS)])
@@ -428,7 +441,7 @@ async def test_create_position_reads_back_the_position_and_its_opening(
         )
     )
 
-    assert result["id"] == 1 and result["positionOpeningId"] == 2
+    assert result["positionOpeningId"] == 2
     assert result["verified"] is True
     assert result["position"]["values"]["/position/fte"] == 100
     assert result["opening"]["values"]["/positionOpening/positionId"] == 1
@@ -448,7 +461,7 @@ async def test_create_position_reports_a_failed_read_back_without_hiding_the_ids
 ) -> None:
     """The write succeeded; a verification failure must not look like a failed write."""
     mock_api.post("/workforce-planning/positions").mock(
-        return_value=httpx.Response(200, json={"id": 1, "positionOpeningId": 2})
+        return_value=httpx.Response(200, json=CREATED_POSITION)
     )
     mock_api.post(POSITION_SEARCH).mock(return_value=httpx.Response(500, json={}))
     mock_api.post(OPENING_SEARCH).mock(
@@ -465,18 +478,116 @@ async def test_create_position_reports_a_failed_read_back_without_hiding_the_ids
         )
     )
 
-    assert result["id"] == 1 and result["positionOpeningId"] == 2
+    assert result["positionId"] == 1 and result["positionOpeningId"] == 2
     assert result["verified"] is False
     assert "server error" in result["verification_error"]
     assert "position" not in result
     assert result["opening"]["values"]["/positionOpening/id"] == 2
 
 
-async def test_create_opening_reads_back_and_confirms_the_parent(
+BUDGET_FIELDS = {
+    "/positionBudget/salaryPayPeriod": "Annual",
+    "/positionBudget/currency": "GBP",
+}
+
+
+async def test_create_position_reads_back_the_budget_sent_with_it(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
+    mock_api.post("/workforce-planning/positions").mock(
+        return_value=httpx.Response(200, json=CREATED_POSITION)
+    )
+    mock_api.post(POSITION_SEARCH).mock(
+        side_effect=hibob_position_search(
+            [_position_row(1, **POSITION_FIELDS, **{"/position/budget": 9})]
+        )
+    )
+    mock_api.post(OPENING_SEARCH).mock(
+        return_value=httpx.Response(
+            200, json={"values": [_opening_row(2, 1, **OPENING_FIELDS)]}
+        )
+    )
+    budgets = mock_api.post(BUDGET_SEARCH).mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "values": [
+                    {
+                        "/positionBudget/id": {"value": 9},
+                        "/positionBudget/currency": {"value": "GBP"},
+                        "/positionBudget/salaryPayPeriod": {"value": "Annual"},
+                    }
+                ]
+            },
+        )
+    )
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_create_position",
+            {
+                "position_fields": POSITION_FIELDS,
+                "opening_fields": OPENING_FIELDS,
+                "budget_fields": BUDGET_FIELDS,
+            },
+        )
+    )
+
+    assert result["verified"] is True
+    assert result["budget"]["values"]["/positionBudget/currency"] == "GBP"
+    assert json.loads(budgets.calls.last.request.content)["filters"] == [
+        {"fieldId": "/positionBudget/id", "operator": "equals", "values": ["9"]}
+    ]
+
+
+async def test_create_position_reports_a_budget_hibob_did_not_create(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob skips a budget sent with a position, without an error, when the
+    service user may not create budgets; the position and opening still are."""
+    mock_api.post("/workforce-planning/positions").mock(
+        return_value=httpx.Response(200, json=CREATED_POSITION)
+    )
+    mock_api.post(POSITION_SEARCH).mock(
+        side_effect=hibob_position_search([_position_row(1, **POSITION_FIELDS)])
+    )
+    mock_api.post(OPENING_SEARCH).mock(
+        return_value=httpx.Response(
+            200, json={"values": [_opening_row(2, 1, **OPENING_FIELDS)]}
+        )
+    )
+    budgets = mock_api.post(BUDGET_SEARCH)
+
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_create_position",
+            {
+                "position_fields": POSITION_FIELDS,
+                "opening_fields": OPENING_FIELDS,
+                "budget_fields": BUDGET_FIELDS,
+            },
+        )
+    )
+
+    assert result["verified"] is False
+    assert "budget was not created" in result["verification_error"]
+    assert BUDGET_PERMISSION_PATH in result["verification_error"]
+    assert result["position"] and result["opening"]
+    assert not budgets.called
+
+
+@pytest.mark.parametrize(
+    "created",
+    [[{"positionId": 5, "positionOpeningId": 6}], {"id": 5, "positionOpeningId": 6}],
+    ids=["list", "as-documented"],
+)
+async def test_create_opening_reads_back_and_confirms_the_parent(
+    mcp_server: FastMCP, mock_api: respx.MockRouter, created: Any
+) -> None:
     mock_api.post("/workforce-planning/positions/5/position-openings").mock(
-        return_value=httpx.Response(200, json={"id": 5, "positionOpeningId": 6})
+        return_value=httpx.Response(200, json=created)
     )
     openings = mock_api.post(OPENING_SEARCH).mock(
         return_value=httpx.Response(
@@ -544,14 +655,19 @@ async def test_create_opening_flags_a_parent_mismatch(
     assert "99" in result["verification_error"]
 
 
+@pytest.mark.parametrize(
+    "created",
+    [[{"positionBudgetId": 8}], {"positionBudgetId": 8}],
+    ids=["list", "as-documented"],
+)
 async def test_create_budget_reads_back_the_budget(
-    mcp_server: FastMCP, mock_api: respx.MockRouter
+    mcp_server: FastMCP, mock_api: respx.MockRouter, created: Any
 ) -> None:
     mock_api.post(POSITION_SEARCH).mock(
         return_value=httpx.Response(200, json=[_position_row(5)])
     )
     mock_api.post("/workforce-planning/positions/5/position-budget").mock(
-        return_value=httpx.Response(200, json={"positionBudgetId": 8})
+        return_value=httpx.Response(200, json=created)
     )
     budgets = mock_api.post(BUDGET_SEARCH).mock(
         return_value=httpx.Response(

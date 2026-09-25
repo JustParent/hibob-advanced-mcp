@@ -1,8 +1,9 @@
 """HiBob API error handling.
 
-HiBob returns errors as ``{"key": ..., "error": ...}``. These are translated
-into messages that tell the caller what to change, following the convention of
-naming the exact HiBob permission path when access is denied.
+HiBob returns errors as ``{"key": ..., "error": ...}``, and some as
+``{"errorMessage": ...}``. These are translated into messages that tell the
+caller what to change, following the convention of naming the exact HiBob
+permission path when access is denied.
 """
 
 from __future__ import annotations
@@ -15,6 +16,9 @@ from .config import ENV_SERVICE_USER_ID, ENV_SERVICE_USER_TOKEN
 
 MANAGE_POSITIONS_PERMISSION_PATH = (
     "Features > Workforce planning > Position management > Manage positions"
+)
+BUDGET_PERMISSION_PATH = (
+    "Features > Workforce planning > Position management > Position budget settings"
 )
 
 RATE_LIMITS_SUMMARY = (
@@ -52,7 +56,7 @@ def _parse_error_body(response: httpx.Response) -> tuple[str | None, str | None]
         return None, text[:500] or None
     if isinstance(body, dict):
         key = body.get("key")
-        error = body.get("error") or body.get("message")
+        error = body.get("error") or body.get("message") or body.get("errorMessage")
         return (
             key if isinstance(key, str) else None,
             error if isinstance(error, str) else None,
@@ -72,6 +76,16 @@ def _named_list_from_path(path: str) -> str | None:
     return name or None
 
 
+def _permission_for(path: str) -> str:
+    """The permission a request needs, as the path to grant it in HiBob.
+
+    Budget writes need their own permission; budget searches do not.
+    """
+    if "/workforce-planning/" in path and "/position-budget" in path:
+        return BUDGET_PERMISSION_PATH
+    return MANAGE_POSITIONS_PERMISSION_PATH
+
+
 def _retry_after_seconds(response: httpx.Response) -> str:
     value = response.headers.get("Retry-After", "").strip()
     return value or "a few"
@@ -89,7 +103,14 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
     except RuntimeError:  # response built without an originating request
         path = ""
 
-    if status == 401:
+    if status == 401 and detail and "permission" in detail.lower():
+        # HiBob refuses some writes the service user may not make with a 401
+        # rather than a 403: {"errorMessage": "No permissions to position budget"}.
+        message = (
+            "HiBob denied the service user permission (401). Grant the service "
+            f"user's permission group: {_permission_for(path)}."
+        )
+    elif status == 401:
         message = (
             "HiBob rejected the credentials (401). Check that "
             f"{ENV_SERVICE_USER_ID} and {ENV_SERVICE_USER_TOKEN} hold the service "
@@ -99,7 +120,7 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
     elif status == 403:
         message = (
             "HiBob denied access (403). Grant the service user's permission group: "
-            f"{MANAGE_POSITIONS_PERMISSION_PATH}. If your HiBob account restricts "
+            f"{_permission_for(path)}. If your HiBob account restricts "
             "API access by IP, also allow this server's outbound IP address."
         )
     elif status == 404 and (list_name := _named_list_from_path(path)):

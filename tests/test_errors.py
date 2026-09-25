@@ -6,10 +6,15 @@ import httpx
 import pytest
 
 from hibob_advanced_mcp.errors import (
+    BUDGET_PERMISSION_PATH,
     MANAGE_POSITIONS_PERMISSION_PATH,
     HiBobApiError,
     format_exception,
     raise_for_hibob_error,
+)
+
+BUDGET_WRITE_URL = (
+    "https://api.hibob.com/v1/workforce-planning/positions/42/position-budget"
 )
 
 
@@ -38,10 +43,37 @@ def test_401_names_both_credential_env_vars() -> None:
     assert "HIBOB_SERVICE_USER_TOKEN" in message
 
 
+def test_401_for_a_missing_permission_names_the_permission_not_the_credentials() -> (
+    None
+):
+    """HiBob refuses a budget write the service user may not make with a 401,
+    not a 403, and puts its message under "errorMessage"."""
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(
+            _response(
+                401,
+                {"errorMessage": "No permissions to position budget"},
+                url=BUDGET_WRITE_URL,
+            )
+        )
+    message = str(excinfo.value)
+    assert BUDGET_PERMISSION_PATH in message
+    assert "No permissions to position budget" in message
+    assert "HIBOB_SERVICE_USER_TOKEN" not in message
+
+
 def test_403_names_the_exact_permission_path() -> None:
     with pytest.raises(HiBobApiError) as excinfo:
         raise_for_hibob_error(_response(403, {"error": "forbidden"}))
     assert MANAGE_POSITIONS_PERMISSION_PATH in str(excinfo.value)
+
+
+def test_403_on_a_budget_write_names_the_budget_permission() -> None:
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(
+            _response(403, {"error": "forbidden"}, url=BUDGET_WRITE_URL)
+        )
+    assert BUDGET_PERMISSION_PATH in str(excinfo.value)
 
 
 def test_404_points_at_the_search_tools() -> None:

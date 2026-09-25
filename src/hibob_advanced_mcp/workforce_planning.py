@@ -40,7 +40,7 @@ from .envelopes import (
     normalize_id,
     validate_required_keys,
 )
-from .errors import HiBobApiError, format_exception
+from .errors import BUDGET_PERMISSION_PATH, HiBobApiError, format_exception
 from .forms import (
     DEPARTMENT_FIELD,
     FORM_INSTRUCTIONS,
@@ -195,6 +195,7 @@ VERIFY_POSITION_FIELDS = (
     "/position/effectiveDate",
     "/position/managerPositionId",
     "/position/expectedStartDate",
+    POSITION_BUDGET_REF_FIELD,
 )
 VERIFY_OPENING_FIELDS = DEFAULT_OPENING_FIELDS
 # A budget carries no positionId: the only link is "/position/budget" on the
@@ -723,6 +724,58 @@ async def _resolve_position_ids(
         if position_id not in ordered:
             ordered.append(position_id)
     return ordered, resolved
+
+
+def _created_ids(created: Any) -> dict[str, Any]:
+    """The IDs HiBob sends back for a created record, as one flat mapping.
+
+    HiBob's live API answers a create with a list, one entry per item written,
+    and names the position "positionId": [{"positionId": ..., "positionOpeningId":
+    ...}]. Its reference documents a single object keyed "id" instead. Accept
+    both; anything else is kept under "response" so the caller can see it.
+    """
+    entries = created if isinstance(created, list) else [created]
+    for entry in entries:
+        if isinstance(entry, dict):
+            return dict(entry)
+    return {"response": created}
+
+
+async def _verify_nested_budget(
+    client: HiBobClient,
+    position: dict[str, Any],
+    written: dict[str, Any],
+    result: dict[str, Any],
+    problems: list[str],
+) -> None:
+    """Read back the budget sent with a new position, or report that it is
+    missing. HiBob creates it only if the service user may create budgets, and
+    otherwise skips it without an error while still creating the position."""
+    budget_id = (position.get("values") or {}).get(POSITION_BUDGET_REF_FIELD)
+    if budget_id is None:
+        problems.append(
+            "the budget was not created: HiBob creates a budget sent with a new "
+            "position only if the service user has the permission "
+            f"{BUDGET_PERMISSION_PATH}, and otherwise skips it without an error. "
+            "Grant it, then add the budget with hibob_create_position_budget"
+        )
+        return
+    record, problem = await _verify(
+        f"budget {budget_id}",
+        _read_back(
+            client,
+            BUDGET_SEARCH_PATH,
+            BUDGET_ID_FIELD,
+            budget_id,
+            _read_back_fields(OBJECT_TYPE_BUDGET, VERIFY_BUDGET_FIELDS, written),
+            paginated=True,
+        ),
+    )
+    if record is not None:
+        result["budget"] = record
+        _confirm_written(OBJECT_TYPE_BUDGET, written, record, result, problems)
+    if problem:
+        problems.append(problem)
 
 
 def _finish_write(result: dict[str, Any], problems: list[str]) -> dict[str, Any]:
@@ -2342,6 +2395,8 @@ def register_workforce_planning_tools(
 
         Creates one position per call. Required fields are checked before the
         request is sent, because HiBob allows only ten write calls per minute.
+        HiBob creates the budget only if the service user may create budgets,
+        and otherwise skips it without an error; the read-back reports that.
 
         Args:
             position_fields: Flat mapping of position field IDs to values.
@@ -2349,11 +2404,12 @@ def register_workforce_planning_tools(
             budget_fields: Optional flat mapping for the nested budget.
 
         Returns:
-            str: JSON {"id": int, "positionOpeningId": int, "verified": bool,
-            "position": {...}, "opening": {...}} - the new IDs plus the position
-            and opening read back from HiBob; "verification_error" explains a
-            failed read-back, which does not mean the write failed. Or an
-            error message beginning with "Error:".
+            str: JSON {"positionId": int, "positionOpeningId": int, "verified":
+            bool, "position": {...}, "opening": {...}, "budget": {...}} - the
+            new IDs plus the records read back from HiBob; "verification_error"
+            explains a failed read-back or a budget HiBob did not create, and
+            neither means the position was not created. Or an error message
+            beginning with "Error:".
 
         Examples:
             - "Plan a new engineer starting in September" -> position_fields
@@ -2383,12 +2439,9 @@ def register_workforce_planning_tools(
                 budget=budget_fields or None,
             )
             api = client()
-            created = await api.post(POSITIONS_PATH, body)
-            result: dict[str, Any] = (
-                dict(created) if isinstance(created, dict) else {"response": created}
-            )
+            result = _created_ids(await api.post(POSITIONS_PATH, body))
             problems: list[str] = []
-            position_id = result.get("id")
+            position_id = result.get("positionId", result.get("id"))
             opening_id = result.get("positionOpeningId")
             if position_id is None and opening_id is None:
                 problems.append("HiBob's response did not include the new IDs")
@@ -2421,6 +2474,10 @@ def register_workforce_planning_tools(
                         result,
                         problems,
                     )
+                    if budget_fields:
+                        await _verify_nested_budget(
+                            api, record, budget_fields, result, problems
+                        )
                 if problem:
                     problems.append(problem)
             if opening_id is not None:
@@ -2655,9 +2712,9 @@ def register_workforce_planning_tools(
             fields: Flat mapping of opening field IDs to values.
 
         Returns:
-            str: JSON {"id": int, "positionOpeningId": int, "verified": bool,
-            "opening": {...}} - HiBob's IDs (id is the position's) plus the
-            opening read back, with its parent confirmed to be position_id;
+            str: JSON {"positionOpeningId": int, "position_id": str, "verified":
+            bool, "opening": {...}} - the new opening's ID plus the opening read
+            back, with its parent confirmed to be position_id;
             "verification_error" explains a failed read-back or a parent
             mismatch, neither of which means the write failed. Or an error
             message beginning with "Error:".
@@ -2670,10 +2727,7 @@ def register_workforce_planning_tools(
             api = client()
             position = await _resolve_position(api, position_id, lookup_ids=False)
             path = f"{POSITIONS_PATH}/{position.id}/position-openings"
-            created = await api.post(path, body)
-            result: dict[str, Any] = (
-                dict(created) if isinstance(created, dict) else {"response": created}
-            )
+            result = _created_ids(await api.post(path, body))
             result["position_id"] = position.id
             opening_id = result.get("positionOpeningId", result.get("id"))
             problems: list[str] = []
@@ -2906,10 +2960,7 @@ def register_workforce_planning_tools(
             position = await _resolve_position(api, position_id, lookup_ids=True)
             refuse_existing_budget(position)
             path = f"{POSITIONS_PATH}/{position.id}/position-budget"
-            created = await api.post(path, body)
-            result: dict[str, Any] = (
-                dict(created) if isinstance(created, dict) else {"response": created}
-            )
+            result = _created_ids(await api.post(path, body))
             result["position_id"] = position.id
             budget_id = result.get("positionBudgetId", result.get("id"))
             problems: list[str] = []
