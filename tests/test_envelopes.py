@@ -64,6 +64,64 @@ def test_wrap_fields_keeps_dict_values_that_are_not_envelopes() -> None:
     assert wrapped == {"/position/meta": {"value": {"a": 1}}}
 
 
+# HiBob's create and update payloads type these as numbers, and reject a
+# string ID with a bare 400.
+NUMERIC_ID_FIELDS = (
+    "/position/site",
+    "/position/jobProfile",
+    "/position/managerPositionId",
+)
+
+
+@pytest.mark.parametrize("field_id", NUMERIC_ID_FIELDS)
+@pytest.mark.parametrize("given", ["2555828", " 2555828 ", {"value": "2555828"}])
+def test_wrap_fields_sends_numeric_ids_given_as_strings_as_numbers(
+    field_id: str, given: object
+) -> None:
+    assert wrap_fields(OBJECT_TYPE_POSITION, {field_id: given}) == {
+        field_id: {"value": 2555828}
+    }
+
+
+@pytest.mark.parametrize("field_id", NUMERIC_ID_FIELDS)
+@pytest.mark.parametrize(
+    "given",
+    ["Berlin - Office", "P-0000000009", "12.5", "-5", "", "\u0663", 12.5, True, [1]],
+)
+def test_wrap_fields_rejects_a_numeric_id_that_is_not_a_number(
+    field_id: str, given: object
+) -> None:
+    with pytest.raises(ValueError) as excinfo:
+        wrap_fields(OBJECT_TYPE_POSITION, {field_id: given})
+    assert field_id in str(excinfo.value)
+    assert repr(given) in str(excinfo.value)
+
+
+@pytest.mark.parametrize("field_id", ["/position/site", "/position/jobProfile"])
+def test_wrap_fields_rejects_a_missing_site_or_job_profile(field_id: str) -> None:
+    with pytest.raises(ValueError, match=field_id):
+        wrap_fields(OBJECT_TYPE_POSITION, {field_id: None})
+
+
+def test_wrap_fields_lets_a_manager_be_cleared() -> None:
+    """HiBob's schema allows a null manager position."""
+    assert wrap_fields(OBJECT_TYPE_POSITION, {"/position/managerPositionId": None}) == {
+        "/position/managerPositionId": {"value": None}
+    }
+
+
+def test_wrap_fields_keeps_list_ids_hibob_wants_as_strings() -> None:
+    """Department and other plain list fields take their string item IDs."""
+    wrapped = wrap_fields(
+        OBJECT_TYPE_POSITION,
+        {"/position/department": "263717557", "/position/field_24023446": "263896351"},
+    )
+    assert wrapped == {
+        "/position/department": {"value": "263717557"},
+        "/position/field_24023446": {"value": "263896351"},
+    }
+
+
 def test_create_position_envelope_matches_hibob_shape() -> None:
     body = build_items_envelope(
         OBJECT_TYPE_POSITION,

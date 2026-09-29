@@ -171,7 +171,7 @@ Updatable on a position: `name`, `effectiveDate`, `managerPositionId`, `position
 
 Filterable fields: `/position/status`, `/position/name`, `/position/hasOpenRequests`, `/position/id`; `/positionOpening/id`, `/positionOpening/status` (`vacant`, `starting`, `filled`, `departing`, `cancelled`, `onHold`, `cancelledSoon`), `/positionOpening/positionOpeningName`. A search without filters returns everything: HiBob refuses an empty filter list, so the server sends a clause every record satisfies.
 
-Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. `hibob_get_workforce_form` returns those IDs alongside each field; `hibob_get_company_named_lists` returns one list's items, or with no `list_name` just the names and sizes of every list, since the full contents of every list can run to tens of megabytes.
+Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. HiBob wants the `site`, `jobProfile` and `managerPositionId` IDs as numbers and refuses a string with a bare 400, so the write tools convert one written as digits (`"2555828"`) and refuse any other value before the request; `managerPositionId` may also be `null`. `hibob_get_workforce_form` returns those IDs alongside each field; `hibob_get_company_named_lists` returns one list's items, or with no `list_name` just the names and sizes of every list, since the full contents of every list can run to tens of megabytes.
 
 ## Development
 

@@ -95,6 +95,53 @@ async def test_create_position_validates_before_spending_rate_budget(
     assert not route.called
 
 
+async def test_create_position_sends_list_ids_given_as_strings_as_numbers(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """What Harriet sent on 2026-09-29, which HiBob refused with a bare 400."""
+    route = mock_api.post("/workforce-planning/positions").mock(
+        return_value=httpx.Response(200, json={"id": 1})
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_create_position",
+        {
+            "position_fields": {
+                **POSITION_FIELDS,
+                "/position/site": "2555828",
+                "/position/jobProfile": "31051810",
+                "/position/managerPositionId": "49824658",
+            },
+            "opening_fields": OPENING_FIELDS,
+        },
+    )
+
+    fields = json.loads(route.calls.last.request.content)["items"][0]["fields"]
+    assert fields["/position/site"] == {"value": 2555828}
+    assert fields["/position/jobProfile"] == {"value": 31051810}
+    assert fields["/position/managerPositionId"] == {"value": 49824658}
+
+
+async def test_create_position_refuses_a_list_id_that_is_not_a_number(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.post("/workforce-planning/positions")
+
+    result = await call_tool(
+        mcp_server,
+        "hibob_create_position",
+        {
+            "position_fields": {**POSITION_FIELDS, "/position/site": "Berlin - Office"},
+            "opening_fields": OPENING_FIELDS,
+        },
+    )
+
+    assert result.startswith("Error:")
+    assert "/position/site" in result
+    assert not route.called
+
+
 async def test_create_position_requires_opening_start_date(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:
@@ -147,6 +194,42 @@ async def test_update_position_patches_by_id(
             {"objectType": "position", "fields": {"/position/fte": {"value": 50}}}
         ]
     }
+
+
+async def test_update_position_sends_a_site_given_as_a_string_as_a_number(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.patch("/workforce-planning/positions/77").mock(
+        return_value=httpx.Response(200, json={"ok": True})
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_update_position",
+        {"position_id": "77", "fields": {"/position/site": "2555828"}},
+    )
+
+    fields = json.loads(route.calls.last.request.content)["items"][0]["fields"]
+    assert fields == {"/position/site": {"value": 2555828}}
+
+
+async def test_update_position_refuses_a_manager_given_by_name(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.patch("/workforce-planning/positions/77")
+
+    result = await call_tool(
+        mcp_server,
+        "hibob_update_position",
+        {
+            "position_id": "77",
+            "fields": {"/position/managerPositionId": "P-0000000009"},
+        },
+    )
+
+    assert result.startswith("Error:")
+    assert "/position/managerPositionId" in result
+    assert not route.called
 
 
 async def test_update_position_rejects_non_updatable_field(
