@@ -166,7 +166,7 @@ def _amount(field_id: str, value: Any, budget_currency: Any) -> int | float:
     return _number(field_id, value, "a plain number in the budget's currency")
 
 
-def _iso_date(field_id: str, value: Any) -> str:
+def iso_date(field_id: str, value: Any) -> str:
     """A date as HiBob's writes take it: YYYY-MM-DD, and a real day."""
     if isinstance(value, str) and _ISO_DATE.fullmatch(text := value.strip()):
         try:
@@ -198,7 +198,7 @@ def _typed_cell(field_id: str, value: Any, budget_currency: Any) -> dict[str, An
     if field_id in AMOUNT_FIELDS:
         return {"value": _amount(field_id, raw, budget_currency)}
     if field_id in DATE_FIELDS:
-        return {"value": _iso_date(field_id, raw)}
+        return {"value": iso_date(field_id, raw)}
     if field_id in STRING_FIELDS:
         return {"value": _list_string(field_id, raw)}
     return cell

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Awaitable, Sequence
+from datetime import date
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -36,6 +37,7 @@ from .envelopes import (
     OBJECT_TYPE_POSITION,
     build_items_envelope,
     flatten_search_entries,
+    iso_date,
     normalize_field_key,
     normalize_id,
     validate_required_keys,
@@ -75,6 +77,7 @@ from .hierarchy import (
 )
 from .list_values import find_list_field, resolve_list_values
 from .references import (
+    NOTHING_WRITTEN,
     OPENING_NAME_FIELD,
     OPENING_REF_FIELDS,
     POSITION_NAME_FIELD,
@@ -101,6 +104,7 @@ OPENING_SEARCH_PATH = "/positions/position-openings/search"
 BUDGET_SEARCH_PATH = "/positions/position-budget/search"
 
 POSITIONS_PATH = "/workforce-planning/positions"
+SCHEDULE_CANCELLATION_PATH = f"{POSITIONS_PATH}/schedule-cancellation"
 
 # The server's only use of HiBob's people API: one filtered search asking for
 # an employee ID by email, so a person named by email can be matched to the
@@ -185,6 +189,27 @@ MATCH_ALL_SENTINEL_OPENING_ID = "1"
 OPENING_SCAN_PAGE_SIZE = 100
 # Bounds a scan at 10,000 openings, so a paging fault cannot loop forever.
 MAX_OPENING_SCAN_PAGES = 100
+
+# A position someone is assigned to, whom HiBob unassigns when it cancels the
+# position, and one whose cancellation cannot be scheduled again.
+HELD_POSITION_STATUSES = frozenset({"filled", "starting", "departing"})
+CANCELLED_POSITION_STATUSES = frozenset({"cancelled", "cancelledSoon"})
+SCHEDULE_LOOKUP_FIELDS = (
+    "/position/id",
+    POSITION_NAME_FIELD,
+    "/position/status",
+    POSITION_FILLED_BY_FIELD,
+)
+# The budget end date: HiBob's API reference documents no way to write it.
+# Whether scheduling a cancellation sets it is undocumented too, so a
+# scheduled position's read-back shows it.
+BUDGET_END_DATE_FIELD = "/position/endEffectiveDate"
+SCHEDULE_READ_BACK_FIELDS = (
+    "/position/id",
+    POSITION_NAME_FIELD,
+    "/position/status",
+    BUDGET_END_DATE_FIELD,
+)
 
 # Fields read back after a write, besides the ones that were written, so the
 # caller sees the record as HiBob now holds it.
@@ -673,6 +698,68 @@ async def _template_position(client: HiBobClient, value: Any) -> dict[str, Any]:
     )
     rows = _raw_rows(payload, "positionEntries")
     return single_match(rows, "position", clause["values"][0], id_field="/position/id")
+
+
+async def _cancellation_target(client: HiBobClient, value: Any) -> dict[str, Any]:
+    """The position to schedule, by ID or name, with its status and holder."""
+    clause = reference_filter(
+        value, id_field="/position/id", name_field=POSITION_NAME_FIELD
+    )
+    payload = await client.search(
+        POSITION_SEARCH_PATH,
+        _search_body(
+            list(SCHEDULE_LOOKUP_FIELDS),
+            [SearchFilter(field_id=clause["fieldId"], values=clause["values"])],
+            True,
+        ),
+    )
+    rows = _raw_rows(payload, "positionEntries")
+    return single_match(rows, "position", clause["values"][0], id_field="/position/id")
+
+
+def _cancellation_day(value: str) -> str:
+    """The day a cancellation is scheduled for: a real day, today or later."""
+    day = iso_date("cancellation_date", value)
+    if date.fromisoformat(day) < date.today():
+        raise ValueError(
+            f"cancellation_date {day} is in the past. To cancel the position now, "
+            "use hibob_cancel_position."
+        )
+    return day
+
+
+def _check_ends_after_start(day: str, starts: dict[str, str]) -> None:
+    """Refuse a cancellation on or before a day the new role has yet to reach."""
+    for what, start in starts.items():
+        if date.fromisoformat(day) <= date.fromisoformat(start):
+            raise ValueError(
+                f"cancellation_date {day} is not after the {what} ({start}), so "
+                f"HiBob would cancel the position before it starts. {NOTHING_WRITTEN}"
+            )
+
+
+def _refuse_budget_end_date(position_fields: dict[str, Any]) -> None:
+    """Point a caller setting the budget end date at cancellation_date."""
+    if any(
+        normalize_field_key(OBJECT_TYPE_POSITION, key) == BUDGET_END_DATE_FIELD
+        for key in position_fields
+    ):
+        raise ValueError(
+            f"HiBob's API does not document writing {BUDGET_END_DATE_FIELD}, the "
+            "budget end date. To end the position on a date, pass cancellation_date "
+            "instead: HiBob then cancels it at midnight at the start of that day. "
+            f"{NOTHING_WRITTEN}"
+        )
+
+
+async def _schedule_cancellation(
+    client: HiBobClient, position_id: Any, day: str
+) -> Any:
+    """Ask HiBob to cancel one position at midnight at the start of ``day``."""
+    return await client.post(
+        SCHEDULE_CANCELLATION_PATH,
+        {"positionIds": [int(normalize_id(position_id))], "cancellationDate": day},
+    )
 
 
 def _template_cell(row: dict[str, Any], field_id: str) -> tuple[Any, Any]:
@@ -2415,6 +2502,19 @@ def register_workforce_planning_tools(
                 )
             ),
         ] = None,
+        cancellation_date: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Optional, for a role that ends: the day HiBob cancels the "
+                    "position, YYYY-MM-DD. HiBob cancels it at midnight at the "
+                    "start of that day, so a role whose last day is 31 March "
+                    "takes 1 April. It must fall after the budget date and the "
+                    "opening's expected start date. Until then the position and "
+                    "its opening show as 'Cancelled soon'."
+                )
+            ),
+        ] = None,
     ) -> str:
         """Create a planned position, with its opening and optional budget.
 
@@ -2429,28 +2529,37 @@ def register_workforce_planning_tools(
         HiBob creates the budget only if the service user may create budgets,
         and otherwise skips it without an error; the read-back reports that.
 
+        HiBob's API cannot give a new position a budget end date. For a role
+        that ends, pass cancellation_date: once the position is created, its
+        cancellation is scheduled for that day, a second write call.
+
         Args:
             position_fields: Flat mapping of position field IDs to values.
             opening_fields: Flat mapping for the nested opening.
             budget_fields: Optional flat mapping for the nested budget.
+            cancellation_date: Optional day HiBob cancels the position.
 
         Returns:
-            str: JSON {"positionId": int, "positionOpeningId": int, "verified":
-            bool, "position": {...}, "opening": {...}, "budget": {...}} - the
-            new IDs plus the records read back from HiBob; "verification_error"
-            explains a failed read-back or a budget HiBob did not create, and
-            neither means the position was not created. Or an error message
-            beginning with "Error:".
+            str: JSON {"positionId": int, "positionOpeningId": int,
+            "cancellation_date"?: str, "verified": bool, "position": {...},
+            "opening": {...}, "budget": {...}} - the new IDs plus the records
+            read back from HiBob; "cancellation_date" is present once the
+            cancellation is scheduled. "verification_error" explains a failed
+            read-back, a budget HiBob did not create or a cancellation it did
+            not schedule, and none of these means the position was not
+            created. Or an error message beginning with "Error:".
 
         Examples:
             - "Plan a new engineer starting in September" -> position_fields
               with effectiveDate/fte/department/site/jobProfile plus
               opening_fields with expectedStartDate.
+            - "A 6-month contractor role starting 1 October, last day 31
+              March" -> the fields above plus cancellation_date='2027-04-01'.
             - Don't use when: adding a second vacancy to an existing position,
               including backfilling someone who is leaving it (use
               hibob_create_position_opening on their position).
 
-        Rate limit: 10 requests/minute.
+        Rate limit: 10 requests/minute; a cancellation_date makes two.
         """
         try:
             validate_required_keys(
@@ -2463,12 +2572,27 @@ def register_workforce_planning_tools(
                 validate_required_keys(
                     OBJECT_TYPE_BUDGET, budget_fields, REQUIRED_BUDGET_FIELDS
                 )
+            _refuse_budget_end_date(position_fields)
             body = build_items_envelope(
                 OBJECT_TYPE_POSITION,
                 position_fields,
                 opening=opening_fields,
                 budget=budget_fields or None,
             )
+            day = None
+            if cancellation_date is not None:
+                day = _cancellation_day(cancellation_date)
+                sent = body["items"][0]["fields"]
+                opening_sent = sent[NESTED_POSITION_OPENING_KEY]["fields"]
+                _check_ends_after_start(
+                    day,
+                    {
+                        "budget date": sent["/position/effectiveDate"]["value"],
+                        "opening's expected start date": opening_sent[
+                            "/positionOpening/expectedStartDate"
+                        ]["value"],
+                    },
+                )
             api = client()
             result = _created_ids(await api.post(POSITIONS_PATH, body))
             problems: list[str] = []
@@ -2476,6 +2600,19 @@ def register_workforce_planning_tools(
             opening_id = result.get("positionOpeningId")
             if position_id is None and opening_id is None:
                 problems.append("HiBob's response did not include the new IDs")
+            if day is not None and position_id is not None:
+                try:
+                    await _schedule_cancellation(api, position_id, day)
+                except Exception as exc:
+                    problems.append(
+                        f"the position was created, but its cancellation on {day} "
+                        "was not scheduled: "
+                        f"{format_exception(exc).removeprefix('Error: ')} Schedule "
+                        "it with hibob_schedule_position_cancellation"
+                    )
+                else:
+                    result["cancellation_date"] = day
+            scheduled = "cancellation_date" in result
             written = {
                 OBJECT_TYPE_POSITION: position_fields,
                 OBJECT_TYPE_OPENING: opening_fields,
@@ -2490,7 +2627,8 @@ def register_workforce_planning_tools(
                         position_id,
                         _read_back_fields(
                             OBJECT_TYPE_POSITION,
-                            VERIFY_POSITION_FIELDS,
+                            VERIFY_POSITION_FIELDS
+                            + ((BUDGET_END_DATE_FIELD,) if scheduled else ()),
                             position_fields,
                         ),
                         paginated=False,
@@ -2505,6 +2643,12 @@ def register_workforce_planning_tools(
                         result,
                         problems,
                     )
+                    status = record["values"].get("/position/status")
+                    if scheduled and status not in CANCELLED_POSITION_STATUSES:
+                        problems.append(
+                            f"position {position_id} reads back as {status!r}, "
+                            "not cancelled soon"
+                        )
                     if budget_fields:
                         await _verify_nested_budget(
                             api, record, budget_fields, result, problems
@@ -2696,6 +2840,130 @@ def register_workforce_planning_tools(
             path = f"{POSITIONS_PATH}/{position.id}/cancel"
             result = await api.patch(path)
             return _dump(result or {"status": "cancelled", "positionId": position.id})
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_schedule_position_cancellation",
+        annotations=ToolAnnotations(
+            title="Schedule a HiBob position's cancellation",
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_schedule_position_cancellation(
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
+        cancellation_date: Annotated[
+            str,
+            Field(
+                description=(
+                    "The day the position is cancelled, YYYY-MM-DD, today or "
+                    "later. HiBob cancels it at midnight at the start of that day."
+                )
+            ),
+        ],
+        unassign_holder: Annotated[
+            bool,
+            Field(
+                description=(
+                    "Must be true to schedule a position someone is assigned to "
+                    "(filled, starting or departing): HiBob unassigns them when it "
+                    "cancels the position. Confirm with the user first."
+                )
+            ),
+        ] = False,
+    ) -> str:
+        """Cancel a position on a later date, such as when a fixed-term role ends.
+
+        Until that date the position shows as "Cancelled soon"; at midnight on
+        it, HiBob cancels the position and unassigns whoever holds it. HiBob's
+        API documents no way to undo this, so confirm the position and date
+        with the user first. To cancel a position now, use
+        hibob_cancel_position instead.
+
+        The position may be given by numeric ID or by its name (P-...). It is
+        looked up first: one already cancelled or cancelled soon is refused,
+        and so is one someone holds unless unassign_holder is true, the error
+        naming the holder so the user can be asked.
+
+        Args:
+            position_id: The position, by numeric ID or name.
+            cancellation_date: The day it is cancelled, YYYY-MM-DD.
+            unassign_holder: True to let HiBob unassign the holder.
+
+        Returns:
+            str: JSON {"status": "scheduled", "position_id": str,
+            "cancellation_date": str, "unassigns"?: str, "verified": bool,
+            "position": {...}} with the position read back, including its
+            status and budget end date; "verification_error" explains a
+            read-back that is neither cancelled soon nor cancelled, which does
+            not mean the request failed. Or an error message beginning with
+            "Error:".
+
+        Examples:
+            - "P-0000000469 ends on 31 March next year" ->
+              position_id='P-0000000469', cancellation_date='2027-03-31', and
+              unassign_holder=True once the user confirms its holder will be
+              unassigned.
+            - Don't use when: cancelling a position today (use
+              hibob_cancel_position).
+
+        Rate limit: 10 requests/minute.
+        """
+        try:
+            day = _cancellation_day(cancellation_date)
+            api = client()
+            row = await _cancellation_target(api, position_id)
+            position = PositionRef.from_row(row)
+            shaped = shape_position(row)
+            status, holder = shaped["status"], shaped["holder"]
+            if status in CANCELLED_POSITION_STATUSES:
+                raise ValueError(
+                    f"{position.describe()} is already {status}, so HiBob cannot "
+                    f"schedule its cancellation. {NOTHING_WRITTEN}"
+                )
+            held = status in HELD_POSITION_STATUSES
+            if held and not unassign_holder:
+                raise ValueError(
+                    f"{position.describe()} is {status}"
+                    + (f", held by {holder}" if holder else "")
+                    + ". HiBob unassigns its holder when it cancels the position "
+                    f"on {day}. Confirm with the user, then call again with "
+                    f"unassign_holder=true. {NOTHING_WRITTEN}"
+                )
+            response = await _schedule_cancellation(api, position.id, day)
+            result: dict[str, Any] = {
+                "status": "scheduled",
+                "position_id": position.id,
+                "cancellation_date": day,
+            }
+            if held and holder:
+                result["unassigns"] = holder
+            if isinstance(response, dict) and response:
+                result["response"] = response
+            record, problem = await _verify(
+                position.describe(),
+                _read_back(
+                    api,
+                    POSITION_SEARCH_PATH,
+                    "/position/id",
+                    position.id,
+                    list(SCHEDULE_READ_BACK_FIELDS),
+                    paginated=False,
+                ),
+            )
+            problems = [problem] if problem else []
+            if record is not None:
+                result["position"] = record
+                got = record["values"].get("/position/status")
+                if got not in CANCELLED_POSITION_STATUSES:
+                    problems.append(
+                        f"{position.describe()} reads back as {got!r}, not "
+                        "cancelled soon or cancelled"
+                    )
+            return _dump(_finish_write(result, problems))
         except Exception as exc:
             return format_exception(exc)
 
