@@ -20,6 +20,16 @@ OBJECT_TYPES = (OBJECT_TYPE_POSITION, OBJECT_TYPE_OPENING, OBJECT_TYPE_BUDGET)
 NESTED_POSITION_OPENING_KEY = "/position/positionOpening"
 NESTED_POSITION_BUDGET_KEY = "/position/positionBudget"
 
+# List fields HiBob's create and update payloads type as numbers. HiBob
+# refuses a string ID for them with a bare 400, yet a caller can easily hold
+# one as a string (hibob_resolve_list_values returns every ID as a string),
+# so an ID written in digits is converted and anything else refused.
+NUMERIC_ID_FIELDS = frozenset(
+    {"/position/site", "/position/jobProfile", "/position/managerPositionId"}
+)
+# HiBob's schema allows a position without a manager.
+NULLABLE_ID_FIELDS = frozenset({"/position/managerPositionId"})
+
 
 def normalize_field_key(object_type: str, key: str) -> str:
     """Normalize a field key to HiBob's ``/objectType/name`` form.
@@ -73,15 +83,39 @@ def _wrap_value(value: Any) -> dict[str, Any]:
     return {"value": value}
 
 
+def _numeric_id(field_id: str, value: Any) -> int | None:
+    """The number HiBob expects for a list item ID, from a number or digits."""
+    if value is None and field_id in NULLABLE_ID_FIELDS:
+        return None
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if text.isascii() and text.isdigit():
+            return int(text)
+    raise ValueError(
+        f"{field_id} must be the list item's numeric ID, not {value!r}. Look "
+        "the ID up with hibob_resolve_list_values."
+    )
+
+
 def wrap_fields(object_type: str, flat: dict[str, Any]) -> dict[str, Any]:
-    """Convert ``{"/position/fte": 100}`` into ``{"/position/fte": {"value": 100}}``."""
+    """Convert ``{"/position/fte": 100}`` into ``{"/position/fte": {"value": 100}}``.
+
+    IDs for the fields in ``NUMERIC_ID_FIELDS`` are sent as numbers, and a
+    value that is not one is refused before anything reaches HiBob.
+    """
     if not isinstance(flat, dict):
         raise ValueError(
             f"Expected a dictionary of {object_type} fields, got {type(flat).__name__}."
         )
     wrapped: dict[str, Any] = {}
     for key, value in flat.items():
-        wrapped[normalize_field_key(object_type, key)] = _wrap_value(value)
+        field_id = normalize_field_key(object_type, key)
+        cell = _wrap_value(value)
+        if field_id in NUMERIC_ID_FIELDS:
+            cell = {"value": _numeric_id(field_id, cell["value"])}
+        wrapped[field_id] = cell
     return wrapped
 
 
