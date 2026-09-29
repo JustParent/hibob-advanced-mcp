@@ -123,6 +123,67 @@ async def test_create_position_sends_list_ids_given_as_strings_as_numbers(
     assert fields["/position/managerPositionId"] == {"value": 49824658}
 
 
+async def test_create_position_sends_each_value_as_the_type_hibob_wants(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.post("/workforce-planning/positions").mock(
+        return_value=httpx.Response(200, json={"id": 1})
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_create_position",
+        {
+            "position_fields": {
+                **POSITION_FIELDS,
+                "/position/fte": "100",
+                "/position/department": 263717557,
+            },
+            "opening_fields": OPENING_FIELDS,
+            "budget_fields": {
+                "/positionBudget/salaryPayPeriod": "Annual",
+                "/positionBudget/currency": "EUR",
+                "/positionBudget/expectedBaseSalaryCurrencyValue": "100000",
+                "/positionBudget/totalPositionCostCurrencyValue": {
+                    "value": 120000,
+                    "currency": "EUR",
+                },
+            },
+        },
+    )
+
+    fields = json.loads(route.calls.last.request.content)["items"][0]["fields"]
+    assert fields["/position/fte"] == {"value": 100}
+    assert fields["/position/department"] == {"value": "263717557"}
+    budget = fields["/position/positionBudget"]["fields"]
+    assert budget["/positionBudget/expectedBaseSalaryCurrencyValue"] == {
+        "value": 100000
+    }
+    assert budget["/positionBudget/totalPositionCostCurrencyValue"] == {"value": 120000}
+
+
+async def test_create_position_refuses_a_date_as_hibob_displays_it(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    route = mock_api.post("/workforce-planning/positions")
+
+    result = await call_tool(
+        mcp_server,
+        "hibob_create_position",
+        {
+            "position_fields": {
+                **POSITION_FIELDS,
+                "/position/effectiveDate": "01/09/2026",
+            },
+            "opening_fields": OPENING_FIELDS,
+        },
+    )
+
+    assert result.startswith("Error:")
+    assert "/position/effectiveDate" in result
+    assert not route.called
+
+
 async def test_create_position_refuses_a_list_id_that_is_not_a_number(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:

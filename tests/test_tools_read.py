@@ -425,6 +425,42 @@ async def test_paged_search_accepts_documented_entries_key(
 MATCH_ALL = {"operator": "notEqual", "values": ["1"]}
 
 
+async def test_search_filter_values_go_to_hibob_as_strings(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """HiBob's filter values are strings, even for IDs and yes/no fields."""
+    route = mock_api.post("/objects/position/search").mock(
+        return_value=httpx.Response(200, json=[])
+    )
+
+    await call_tool(
+        mcp_server,
+        "hibob_search_positions",
+        {
+            "fields": ["/position/id"],
+            "filters": [
+                {"field_id": "/position/id", "values": [77, "78"]},
+                {"field_id": "/position/hasOpenRequests", "values": [True]},
+                {"field_id": "/position/hasOpenRequests", "values": [False]},
+            ],
+        },
+    )
+
+    assert json.loads(route.calls.last.request.content)["filters"] == [
+        {"fieldId": "/position/id", "operator": "equals", "values": ["77", "78"]},
+        {
+            "fieldId": "/position/hasOpenRequests",
+            "operator": "equals",
+            "values": ["true"],
+        },
+        {
+            "fieldId": "/position/hasOpenRequests",
+            "operator": "equals",
+            "values": ["false"],
+        },
+    ]
+
+
 async def test_position_search_without_filters_returns_every_position(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:

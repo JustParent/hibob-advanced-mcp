@@ -664,6 +664,29 @@ async def test_position_form_narrows_lists_from_department_role_and_manager(
     assert "options_truncated" not in manager
 
 
+async def test_position_form_narrows_from_ids_given_as_numbers(
+    mcp_server: FastMCP, mock_api: respx.MockRouter
+) -> None:
+    """Results show list item IDs as numbers, so a caller passes them back."""
+    _mock_narrowing(mock_api)
+
+    as_strings = await call_tool(
+        mcp_server,
+        "hibob_get_workforce_form",
+        {"department": "1", "job_profile": "101", "manager": "5001"},
+    )
+    as_numbers = await call_tool(
+        mcp_server,
+        "hibob_get_workforce_form",
+        {"department": 1, "job_profile": 101, "manager": 5001},
+    )
+
+    assert as_numbers == as_strings
+    position = _fields(_sections(json.loads(as_numbers))["position"])
+    assert position["/position/jobProfile"]["value"] == 101
+    assert position["/position/managerPositionId"]["value"] == 5001
+
+
 async def test_position_form_limits_manager_and_profile_choices_to_the_department(
     mcp_server: FastMCP, mock_api: respx.MockRouter
 ) -> None:

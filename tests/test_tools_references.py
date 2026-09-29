@@ -9,9 +9,11 @@ parent is refused rather than sent.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 import httpx
+import pytest
 import respx
 from mcp.server.fastmcp import FastMCP
 
@@ -613,3 +615,125 @@ async def test_position_costs_accepts_position_names(
     assert json.loads(positions.calls[1].request.content)["filters"] == [
         {"fieldId": "/position/id", "operator": "equals", "values": ["7"]}
     ]
+
+
+# ---------------------------------------------------- IDs given as numbers
+
+# Every argument that names a position, opening, budget or list item. Tool
+# results show these IDs as JSON numbers, so a caller passes them back that
+# way; each call is made once with the IDs as numbers and once as strings.
+ID_CALLS: list[tuple[str, Callable[[type], dict[str, Any]]]] = [
+    (
+        "hibob_update_position",
+        lambda as_: {"position_id": as_(77), "fields": {"/position/fte": 50}},
+    ),
+    ("hibob_cancel_position", lambda as_: {"position_id": as_(77)}),
+    (
+        "hibob_create_position_opening",
+        lambda as_: {
+            "position_id": as_(77),
+            "fields": {"/positionOpening/expectedStartDate": "2026-10-01"},
+        },
+    ),
+    (
+        "hibob_update_position_opening",
+        lambda as_: {
+            "position_id": as_(77),
+            "opening_id": as_(88),
+            "fields": {"/positionOpening/recruitmentStatus": "open"},
+        },
+    ),
+    (
+        "hibob_delete_position_opening",
+        lambda as_: {"position_id": as_(77), "opening_id": as_(88)},
+    ),
+    (
+        "hibob_update_position_budget",
+        lambda as_: {
+            "position_id": as_(77),
+            "budget_id": as_(99),
+            "fields": {"/positionBudget/currency": "EUR"},
+        },
+    ),
+    ("hibob_get_positions_under", lambda as_: {"position": as_(77)}),
+    (
+        "hibob_search_positions",
+        lambda as_: {
+            "fields": ["/position/id"],
+            "filters": [{"field_id": "/position/id", "values": [as_(77)]}],
+        },
+    ),
+    (
+        "hibob_resolve_list_values",
+        lambda as_: {"field": "/position/site", "values": [as_(2555828)]},
+    ),
+    ("hibob_get_workforce_form", lambda as_: {"based_on_position": as_(77)}),
+]
+
+
+def _one_of_everything(sent: list[tuple[str, str, Any]]) -> Any:
+    """Answer every request with one position (77, budget 99) holding one
+    opening (88), a site list holding Berlin, and a bare 200 for writes,
+    recording each request."""
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        body = json.loads(request.content) if request.content else None
+        sent.append((request.method, path, body))
+        if path.endswith(POSITION_SEARCH):
+            return httpx.Response(200, json=[_position(77, "P-77", 99)])
+        if path.endswith(OPENING_SEARCH):
+            return httpx.Response(200, json={"values": [_opening(88, "O-88", 77)]})
+        if path.endswith("/search"):
+            return httpx.Response(200, json={"values": []})
+        if path.endswith("/metadata/objects/position"):
+            site = {"type": "list_id", "typeData": {"listId": "site"}}
+            return httpx.Response(
+                200, json=[{"id": "/position/site", "name": "Site", "fieldType": site}]
+            )
+        if path.endswith("/named-lists/site"):
+            items = [{"id": 2555828, "name": "Berlin - Office"}]
+            return httpx.Response(200, json={"name": "site", "items": items})
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json={})
+
+    return respond
+
+
+@pytest.mark.parametrize("tool,arguments", ID_CALLS, ids=[tool for tool, _ in ID_CALLS])
+async def test_ids_given_as_numbers_work_as_their_strings_do(
+    server_factory: Callable[..., FastMCP],
+    mock_api: respx.MockRouter,
+    tool: str,
+    arguments: Callable[[type], dict[str, Any]],
+) -> None:
+    sent: list[tuple[str, str, Any]] = []
+    mock_api.route().mock(side_effect=_one_of_everything(sent))
+
+    as_strings = await call_tool(server_factory(), tool, arguments(str))
+    sent_for_strings = list(sent)
+    sent.clear()
+    as_numbers = await call_tool(server_factory(), tool, arguments(int))
+
+    assert as_numbers == as_strings
+    assert sent == sent_for_strings
+
+
+@pytest.mark.parametrize(
+    "tool,arguments",
+    [
+        ("hibob_get_positions_under", {"position": " "}),
+        ("hibob_update_position", {"position_id": "", "fields": {"/position/fte": 50}}),
+        ("hibob_delete_position_opening", {"position_id": "77", "opening_id": ""}),
+    ],
+)
+async def test_an_empty_reference_is_refused_before_any_request(
+    mcp_server: FastMCP, mock_api: respx.MockRouter, tool: str, arguments: dict
+) -> None:
+    route = mock_api.route()
+
+    result = await call_tool(mcp_server, tool, arguments)
+
+    assert result.startswith("Error:")
+    assert not route.called

@@ -97,19 +97,6 @@ def test_wrap_fields_rejects_a_numeric_id_that_is_not_a_number(
     assert repr(given) in str(excinfo.value)
 
 
-@pytest.mark.parametrize("field_id", ["/position/site", "/position/jobProfile"])
-def test_wrap_fields_rejects_a_missing_site_or_job_profile(field_id: str) -> None:
-    with pytest.raises(ValueError, match=field_id):
-        wrap_fields(OBJECT_TYPE_POSITION, {field_id: None})
-
-
-def test_wrap_fields_lets_a_manager_be_cleared() -> None:
-    """HiBob's schema allows a null manager position."""
-    assert wrap_fields(OBJECT_TYPE_POSITION, {"/position/managerPositionId": None}) == {
-        "/position/managerPositionId": {"value": None}
-    }
-
-
 def test_wrap_fields_keeps_list_ids_hibob_wants_as_strings() -> None:
     """Department and other plain list fields take their string item IDs."""
     wrapped = wrap_fields(
@@ -120,6 +107,174 @@ def test_wrap_fields_keeps_list_ids_hibob_wants_as_strings() -> None:
         "/position/department": {"value": "263717557"},
         "/position/field_24023446": {"value": "263896351"},
     }
+
+
+# One field of each kind HiBob's API reference types, with its object.
+TYPED_FIELDS = [
+    (OBJECT_TYPE_POSITION, "/position/site"),
+    (OBJECT_TYPE_POSITION, "/position/managerPositionId"),
+    (OBJECT_TYPE_POSITION, "/position/fte"),
+    (OBJECT_TYPE_BUDGET, "/positionBudget/totalPositionCostCurrencyValue"),
+    (OBJECT_TYPE_POSITION, "/position/effectiveDate"),
+    (OBJECT_TYPE_POSITION, "/position/department"),
+]
+
+
+@pytest.mark.parametrize("object_type,field_id", TYPED_FIELDS)
+def test_wrap_fields_refuses_null_for_a_typed_field(
+    object_type: str, field_id: str
+) -> None:
+    """HiBob allows null only on some creates, where leaving the field out
+    does the same, and refuses it on update: a manager cannot be cleared."""
+    with pytest.raises(ValueError, match=field_id):
+        wrap_fields(object_type, {field_id: None})
+
+
+AMOUNT_FIELDS = (
+    "/positionBudget/expectedBaseSalaryCurrencyValue",
+    "/positionBudget/totalPositionCostCurrencyValue",
+    "/positionBudget/expectedVariablePayCurrencyValue",
+)
+NUMBER_FIELDS = [(OBJECT_TYPE_POSITION, "/position/fte")] + [
+    (OBJECT_TYPE_BUDGET, field_id) for field_id in AMOUNT_FIELDS
+]
+
+
+@pytest.mark.parametrize("object_type,field_id", NUMBER_FIELDS)
+@pytest.mark.parametrize(
+    "given,sent",
+    [("100000", 100000), (" 80 ", 80), ("65000.5", 65000.5), (65000.5, 65000.5)],
+)
+def test_wrap_fields_sends_numbers_given_as_strings_as_numbers(
+    object_type: str, field_id: str, given: object, sent: float
+) -> None:
+    assert wrap_fields(object_type, {field_id: given}) == {field_id: {"value": sent}}
+
+
+@pytest.mark.parametrize("object_type,field_id", NUMBER_FIELDS)
+@pytest.mark.parametrize(
+    "given", ["100,000", "€100000", "100k", "100%", "1e5", "", True, [100]]
+)
+def test_wrap_fields_refuses_a_number_that_is_not_one(
+    object_type: str, field_id: str, given: object
+) -> None:
+    with pytest.raises(ValueError) as excinfo:
+        wrap_fields(object_type, {field_id: given})
+    assert field_id in str(excinfo.value)
+    assert repr(given) in str(excinfo.value)
+
+
+def test_wrap_fields_takes_amounts_from_money_values_in_the_budget_currency() -> None:
+    """Budget searches return amounts as {"value": n, "currency": c}, where
+    HiBob's writes take the bare number."""
+    wrapped = wrap_fields(
+        OBJECT_TYPE_BUDGET,
+        {
+            "currency": "EUR",
+            "/positionBudget/expectedBaseSalaryCurrencyValue": {
+                "value": 100000,
+                "currency": "EUR",
+            },
+            "/positionBudget/totalPositionCostCurrencyValue": {
+                "value": {"value": 120000, "currency": "EUR"},
+                "humanReadable": "€120000.00",
+            },
+        },
+    )
+    assert wrapped == {
+        "/positionBudget/currency": {"value": "EUR"},
+        "/positionBudget/expectedBaseSalaryCurrencyValue": {"value": 100000},
+        "/positionBudget/totalPositionCostCurrencyValue": {"value": 120000},
+    }
+
+
+@pytest.mark.parametrize("budget_currency", ["GBP", None])
+def test_wrap_fields_refuses_a_money_value_not_matched_to_the_budget_currency(
+    budget_currency: str | None,
+) -> None:
+    """Without the budget's currency to compare, a copied amount could be
+    written in the wrong currency."""
+    fields: dict[str, object] = {
+        "/positionBudget/expectedBaseSalaryCurrencyValue": {
+            "value": 100000,
+            "currency": "EUR",
+        }
+    }
+    if budget_currency:
+        fields["/positionBudget/currency"] = budget_currency
+    with pytest.raises(
+        ValueError, match="/positionBudget/expectedBaseSalaryCurrencyValue"
+    ):
+        wrap_fields(OBJECT_TYPE_BUDGET, fields)
+
+
+DATE_FIELDS = [
+    (OBJECT_TYPE_POSITION, "/position/effectiveDate"),
+    (OBJECT_TYPE_OPENING, "/positionOpening/expectedStartDate"),
+]
+
+
+@pytest.mark.parametrize("object_type,field_id", DATE_FIELDS)
+@pytest.mark.parametrize("given", ["2026-09-01", " 2026-09-01 "])
+def test_wrap_fields_sends_iso_dates(
+    object_type: str, field_id: str, given: str
+) -> None:
+    assert wrap_fields(object_type, {field_id: given}) == {
+        field_id: {"value": "2026-09-01"}
+    }
+
+
+@pytest.mark.parametrize("object_type,field_id", DATE_FIELDS)
+@pytest.mark.parametrize(
+    "given",
+    [
+        "01/09/2026",  # how HiBob's search results display dates
+        "2026-9-1",
+        "2026-02-30",
+        "2026-09-01T00:00:00",
+        "20260901",
+        "",
+        20260901,
+    ],
+)
+def test_wrap_fields_refuses_a_date_not_written_yyyy_mm_dd(
+    object_type: str, field_id: str, given: object
+) -> None:
+    with pytest.raises(ValueError) as excinfo:
+        wrap_fields(object_type, {field_id: given})
+    assert field_id in str(excinfo.value)
+    assert repr(given) in str(excinfo.value)
+
+
+STRING_FIELDS = [
+    (OBJECT_TYPE_POSITION, "/position/department"),
+    (OBJECT_TYPE_POSITION, "/position/positionType"),
+    (OBJECT_TYPE_POSITION, "/position/employmentType"),
+    (OBJECT_TYPE_OPENING, "/positionOpening/recruitmentStatus"),
+    (OBJECT_TYPE_BUDGET, "/positionBudget/currency"),
+    (OBJECT_TYPE_BUDGET, "/positionBudget/salaryPayPeriod"),
+    (OBJECT_TYPE_BUDGET, "/positionBudget/variablePayPeriod"),
+]
+
+
+@pytest.mark.parametrize("object_type,field_id", STRING_FIELDS)
+def test_wrap_fields_sends_list_ids_given_as_numbers_as_strings(
+    object_type: str, field_id: str
+) -> None:
+    assert wrap_fields(object_type, {field_id: 263717557}) == {
+        field_id: {"value": "263717557"}
+    }
+
+
+@pytest.mark.parametrize("object_type,field_id", STRING_FIELDS)
+@pytest.mark.parametrize("given", [12.5, True, ["263717557"]])
+def test_wrap_fields_refuses_a_list_value_that_is_not_a_string(
+    object_type: str, field_id: str, given: object
+) -> None:
+    with pytest.raises(ValueError) as excinfo:
+        wrap_fields(object_type, {field_id: given})
+    assert field_id in str(excinfo.value)
+    assert repr(given) in str(excinfo.value)
 
 
 def test_create_position_envelope_matches_hibob_shape() -> None:
