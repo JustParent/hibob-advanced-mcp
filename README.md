@@ -145,6 +145,7 @@ Seven of the read tools do work HiBob's API cannot do in one request:
 | `hibob_create_position` | `POST /workforce-planning/positions` | 10/min |
 | `hibob_update_position` | `PATCH /workforce-planning/positions/{id}` | 10/min |
 | `hibob_cancel_position` | `PATCH /workforce-planning/positions/{id}/cancel` | 10/min |
+| `hibob_schedule_position_cancellation` | `POST /workforce-planning/positions/schedule-cancellation` | 10/min |
 | `hibob_create_position_opening` | `POST .../position-openings` | 10/min |
 | `hibob_update_position_opening` | `PATCH .../position-openings/{openingId}` | 10/min |
 | `hibob_delete_position_opening` | `DELETE .../position-openings/{openingId}` | 10/min |
@@ -155,7 +156,9 @@ Every tool that takes a position or an opening accepts it either as its numeric 
 
 Writes are limited to ten calls a minute, so required fields are validated before a request is sent and write calls are never retried automatically. Read calls retry twice on 429 and 5xx responses, honouring `Retry-After`. Named lists and metadata are each limited to fifty calls a minute and a position form needs a dozen lists and three metadata calls, so both are cached in the server process for five minutes, shared between the form, named-list and resolve tools; a failed fetch is not cached. Every create and update reads the record back through its search endpoint and returns it with `verified`; a read-back failure is reported as `verification_error` rather than as a failed write, and a created opening is checked to belong to the position it was created under.
 
-`hibob_create_position` creates one position per call, together with its first opening (HiBob requires one) and an optional budget.
+`hibob_create_position` creates one position per call, together with its first opening (HiBob requires one) and an optional budget. HiBob's API cannot give a new position a budget end date, so a role that ends takes `cancellation_date` instead: once the position is created, its cancellation is scheduled for that day (a second write call, and the same endpoint as `hibob_schedule_position_cancellation`). The date must fall after the budget date and the opening's expected start date, and is checked before anything is sent; `/position/endEffectiveDate` in `position_fields` is refused with a pointer to it. If the scheduling fails after the create, the result still carries the new IDs, with `verified: false` and HiBob's reason.
+
+`hibob_cancel_position` cancels a position now; HiBob refuses it for a filled position. `hibob_schedule_position_cancellation` cancels one on a later date instead, such as when a fixed-term role ends: until then the position shows as "Cancelled soon", and at midnight on the date HiBob cancels it and unassigns whoever holds it. HiBob's API documents no way to undo a scheduled cancellation, so the tool looks the position up first and refuses, before anything is sent, a position already cancelled or cancelled soon, a date that is not a real day today or later, and a filled, starting or departing position unless `unassign_holder` is true, the error naming the holder so the user can be asked. The position is read back afterwards with its status and budget end date.
 
 ## Field cheat sheet
 

@@ -629,6 +629,10 @@ ID_CALLS: list[tuple[str, Callable[[type], dict[str, Any]]]] = [
     ),
     ("hibob_cancel_position", lambda as_: {"position_id": as_(77)}),
     (
+        "hibob_schedule_position_cancellation",
+        lambda as_: {"position_id": as_(77), "cancellation_date": "2099-03-31"},
+    ),
+    (
         "hibob_create_position_opening",
         lambda as_: {
             "position_id": as_(77),

@@ -24,6 +24,7 @@ WRITE_TOOLS = {
     "hibob_create_position",
     "hibob_update_position",
     "hibob_cancel_position",
+    "hibob_schedule_position_cancellation",
     "hibob_create_position_opening",
     "hibob_update_position_opening",
     "hibob_delete_position_opening",
@@ -31,7 +32,11 @@ WRITE_TOOLS = {
     "hibob_update_position_budget",
 }
 
-DESTRUCTIVE_TOOLS = {"hibob_cancel_position", "hibob_delete_position_opening"}
+DESTRUCTIVE_TOOLS = {
+    "hibob_cancel_position",
+    "hibob_schedule_position_cancellation",
+    "hibob_delete_position_opening",
+}
 
 
 async def _tool_names(mcp: FastMCP) -> set[str]:
