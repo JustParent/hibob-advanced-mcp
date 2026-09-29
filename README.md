@@ -171,7 +171,20 @@ Updatable on a position: `name`, `effectiveDate`, `managerPositionId`, `position
 
 Filterable fields: `/position/status`, `/position/name`, `/position/hasOpenRequests`, `/position/id`; `/positionOpening/id`, `/positionOpening/status` (`vacant`, `starting`, `filled`, `departing`, `cancelled`, `onHold`, `cancelledSoon`), `/positionOpening/positionOpeningName`. A search without filters returns everything: HiBob refuses an empty filter list, so the server sends a clause every record satisfies.
 
-Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. HiBob wants the `site`, `jobProfile` and `managerPositionId` IDs as numbers and refuses a string with a bare 400, so the write tools convert one written as digits (`"2555828"`) and refuse any other value before the request; `managerPositionId` may also be `null`. `hibob_get_workforce_form` returns those IDs alongside each field; `hibob_get_company_named_lists` returns one list's items, or with no `list_name` just the names and sizes of every list, since the full contents of every list can run to tens of megabytes.
+Fields such as `department`, `site` and `jobProfile` take HiBob list item IDs, not names. `hibob_get_workforce_form` returns those IDs alongside each field; `hibob_get_company_named_lists` returns one list's items, or with no `list_name` just the names and sizes of every list, since the full contents of every list can run to tens of megabytes.
+
+HiBob refuses a write value of the wrong JSON type, at least sometimes with a bare 400 that names no field, so the write tools send each documented field as the type HiBob's API reference gives it. A value is converted where that is unambiguous and refused before the request otherwise:
+
+| Fields | HiBob wants | Converted | Refused |
+|---|---|---|---|
+| `site`, `jobProfile`, `managerPositionId` | a number | digits in a string, `"2555828"` | names, decimals, anything else |
+| `fte` and the budget amounts (`expectedBaseSalary…`, `totalPositionCost…`, `expectedVariablePay…CurrencyValue`) | a number | a plain decimal in a string, `"65000.5"`; for an amount, the `{"value": n, "currency": c}` that budget searches return, when `c` is the budget's `currency` in the same write | `"100,000"`, `"€100k"`, `"100%"`, anything else |
+| `effectiveDate`, `expectedStartDate` | `YYYY-MM-DD` | surrounding spaces | the day-first dates HiBob's searches display (`01/09/2026`), impossible days, anything else |
+| `department`, `positionType`, `employmentType`, `recruitmentStatus`, `currency`, `salaryPayPeriod`, `variablePayPeriod` | a string | a whole number, `263717557` | anything else |
+
+`null` is refused for all of them: HiBob allows it only on some creates, where leaving the field out does the same, and never on update. Custom fields (`/position/field_<number>`) go through as given, since HiBob's reference does not type them.
+
+Tool arguments that name a position, opening, budget or list item take a number as readily as a string, since results show those IDs as numbers. Search filter values go to HiBob as strings, as it compares them, with `true`/`false` for yes/no fields.
 
 ## Development
 

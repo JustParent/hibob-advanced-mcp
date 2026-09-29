@@ -8,6 +8,8 @@ these pure functions do the conversion in both directions.
 
 from __future__ import annotations
 
+import re
+from datetime import date
 from typing import Any
 
 OBJECT_TYPE_POSITION = "position"
@@ -20,15 +22,48 @@ OBJECT_TYPES = (OBJECT_TYPE_POSITION, OBJECT_TYPE_OPENING, OBJECT_TYPE_BUDGET)
 NESTED_POSITION_OPENING_KEY = "/position/positionOpening"
 NESTED_POSITION_BUDGET_KEY = "/position/positionBudget"
 
-# List fields HiBob's create and update payloads type as numbers. HiBob
-# refuses a string ID for them with a bare 400, yet a caller can easily hold
-# one as a string (hibob_resolve_list_values returns every ID as a string),
-# so an ID written in digits is converted and anything else refused.
+# How HiBob's API reference types each documented write field. HiBob refuses
+# a value of any other JSON type, with a bare 400 at least for a string ID, so
+# a value is converted where that is unambiguous and refused otherwise before
+# anything is sent. Null is refused too: HiBob allows it only on some creates,
+# where leaving the field out does the same, and never on update.
+#
+# List fields whose item IDs HiBob takes as numbers. A caller can easily hold
+# one as a string (hibob_resolve_list_values returns every ID as a string).
 NUMERIC_ID_FIELDS = frozenset(
     {"/position/site", "/position/jobProfile", "/position/managerPositionId"}
 )
-# HiBob's schema allows a position without a manager.
-NULLABLE_ID_FIELDS = frozenset({"/position/managerPositionId"})
+NUMBER_FIELDS = frozenset({"/position/fte"})
+# Budget searches return these as {"value": n, "currency": c}; writes take
+# the bare number, in the currency the budget names.
+AMOUNT_FIELDS = frozenset(
+    {
+        "/positionBudget/expectedBaseSalaryCurrencyValue",
+        "/positionBudget/totalPositionCostCurrencyValue",
+        "/positionBudget/expectedVariablePayCurrencyValue",
+    }
+)
+BUDGET_CURRENCY_FIELD = "/positionBudget/currency"
+# Searches display dates day first (01/09/2026); writes take YYYY-MM-DD.
+DATE_FIELDS = frozenset(
+    {"/position/effectiveDate", "/positionOpening/expectedStartDate"}
+)
+# List fields whose item IDs HiBob takes as strings, numeric-looking or not.
+STRING_FIELDS = frozenset(
+    {
+        "/position/department",
+        "/position/positionType",
+        "/position/employmentType",
+        "/positionOpening/recruitmentStatus",
+        BUDGET_CURRENCY_FIELD,
+        "/positionBudget/salaryPayPeriod",
+        "/positionBudget/variablePayPeriod",
+    }
+)
+
+_WHOLE_NUMBER = re.compile(r"[0-9]+")
+_DECIMAL = re.compile(r"[0-9]+(\.[0-9]+)?")
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 def normalize_field_key(object_type: str, key: str) -> str:
@@ -83,40 +118,113 @@ def _wrap_value(value: Any) -> dict[str, Any]:
     return {"value": value}
 
 
-def _numeric_id(field_id: str, value: Any) -> int | None:
-    """The number HiBob expects for a list item ID, from a number or digits."""
-    if value is None and field_id in NULLABLE_ID_FIELDS:
-        return None
+def _refused(field_id: str, value: Any, wanted: str, hint: str = "") -> ValueError:
+    if value is None:
+        return ValueError(f"{field_id} cannot be null; leave the field out instead.")
+    return ValueError(f"{field_id} must be {wanted}, not {value!r}.{hint}")
+
+
+def _numeric_id(field_id: str, value: Any) -> int:
+    """A list item ID as the number HiBob expects, from a number or digits."""
     if isinstance(value, int) and not isinstance(value, bool):
         return value
-    if isinstance(value, str):
-        text = value.strip()
-        if text.isascii() and text.isdigit():
-            return int(text)
-    raise ValueError(
-        f"{field_id} must be the list item's numeric ID, not {value!r}. Look "
-        "the ID up with hibob_resolve_list_values."
+    if isinstance(value, str) and _WHOLE_NUMBER.fullmatch(value.strip()):
+        return int(value.strip())
+    raise _refused(
+        field_id,
+        value,
+        "the list item's numeric ID",
+        " Look the ID up with hibob_resolve_list_values.",
     )
+
+
+def _number(field_id: str, value: Any, wanted: str) -> int | float:
+    """A number, from a number or a plain decimal such as "65000.5"."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str) and _DECIMAL.fullmatch(text := value.strip()):
+        return float(text) if "." in text else int(text)
+    raise _refused(field_id, value, wanted)
+
+
+def _amount(field_id: str, value: Any, budget_currency: Any) -> int | float:
+    """A budget amount, from a number or a money value in the budget's currency."""
+    if isinstance(value, dict) and set(value) == {"value", "currency"}:
+        currency = value["currency"]
+        if budget_currency is None:
+            raise ValueError(
+                f"{field_id} is given in {currency!r}, but this write does not name "
+                f"{BUDGET_CURRENCY_FIELD} to check that against. Send a plain number "
+                f"in the budget's currency, or include {BUDGET_CURRENCY_FIELD}."
+            )
+        if normalize_id(currency) != normalize_id(budget_currency):
+            raise ValueError(
+                f"{field_id} is given in {currency!r}, but the budget's currency is "
+                f"{budget_currency!r}. Send the amount in {budget_currency!r}."
+            )
+        value = value["value"]
+    return _number(field_id, value, "a plain number in the budget's currency")
+
+
+def _iso_date(field_id: str, value: Any) -> str:
+    """A date as HiBob's writes take it: YYYY-MM-DD, and a real day."""
+    if isinstance(value, str) and _ISO_DATE.fullmatch(text := value.strip()):
+        try:
+            date.fromisoformat(text)
+        except ValueError:
+            pass
+        else:
+            return text
+    raise _refused(field_id, value, "a date written YYYY-MM-DD")
+
+
+def _list_string(field_id: str, value: Any) -> str:
+    """A list item ID as the string HiBob expects, from a string or a number."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return str(value)
+    raise _refused(field_id, value, "a string, such as a list item ID")
+
+
+def _typed_cell(field_id: str, value: Any, budget_currency: Any) -> dict[str, Any]:
+    """Wrap one value, in the JSON type HiBob's reference gives its field."""
+    cell = _wrap_value(value)
+    raw = cell["value"]
+    if field_id in NUMERIC_ID_FIELDS:
+        return {"value": _numeric_id(field_id, raw)}
+    if field_id in NUMBER_FIELDS:
+        return {"value": _number(field_id, raw, "a number, where 100 is full time")}
+    if field_id in AMOUNT_FIELDS:
+        return {"value": _amount(field_id, raw, budget_currency)}
+    if field_id in DATE_FIELDS:
+        return {"value": _iso_date(field_id, raw)}
+    if field_id in STRING_FIELDS:
+        return {"value": _list_string(field_id, raw)}
+    return cell
 
 
 def wrap_fields(object_type: str, flat: dict[str, Any]) -> dict[str, Any]:
     """Convert ``{"/position/fte": 100}`` into ``{"/position/fte": {"value": 100}}``.
 
-    IDs for the fields in ``NUMERIC_ID_FIELDS`` are sent as numbers, and a
-    value that is not one is refused before anything reaches HiBob.
+    Each documented field's value is sent as the JSON type HiBob's reference
+    gives it, converted where that is unambiguous; anything else is refused
+    before it reaches HiBob.
     """
     if not isinstance(flat, dict):
         raise ValueError(
             f"Expected a dictionary of {object_type} fields, got {type(flat).__name__}."
         )
-    wrapped: dict[str, Any] = {}
-    for key, value in flat.items():
-        field_id = normalize_field_key(object_type, key)
-        cell = _wrap_value(value)
-        if field_id in NUMERIC_ID_FIELDS:
-            cell = {"value": _numeric_id(field_id, cell["value"])}
-        wrapped[field_id] = cell
-    return wrapped
+    fields = {
+        normalize_field_key(object_type, key): value for key, value in flat.items()
+    }
+    budget_currency = fields.get(BUDGET_CURRENCY_FIELD)
+    if budget_currency is not None:
+        budget_currency = _wrap_value(budget_currency)["value"]
+    return {
+        field_id: _typed_cell(field_id, value, budget_currency)
+        for field_id, value in fields.items()
+    }
 
 
 def _nested_object(object_type: str, flat: dict[str, Any]) -> dict[str, Any]:

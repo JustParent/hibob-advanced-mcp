@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Sequence
 from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import FastMCP
@@ -302,6 +302,18 @@ FORM_SUBMIT_TOOLS = {
 }
 
 
+def _filter_value(value: str | int | bool) -> str:
+    """A filter value as HiBob compares it: a string, even for an ID or a
+    yes/no field."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return normalize_id(value)
+
+
+def _as_text(value: str | int | None) -> str | None:
+    return None if value is None else normalize_id(value)
+
+
 class SearchFilter(BaseModel):
     """One filter clause in a workforce planning search."""
 
@@ -317,9 +329,12 @@ class SearchFilter(BaseModel):
     operator: Literal["equals", "notEqual"] = Field(
         default="equals", description="Comparison operator."
     )
-    values: list[str] = Field(
+    values: Sequence[str | int | bool] = Field(
         ...,
-        description="Values to compare against; the filter matches any of them.",
+        description=(
+            "Values to compare against; the filter matches any of them. IDs may be "
+            "numbers, and yes/no fields take true or false."
+        ),
         min_length=1,
     )
 
@@ -327,7 +342,7 @@ class SearchFilter(BaseModel):
         return {
             "fieldId": self.field_id,
             "operator": self.operator,
-            "values": list(self.values),
+            "values": [_filter_value(value) for value in self.values],
         }
 
 
@@ -1173,7 +1188,7 @@ def register_workforce_planning_tools(
             ),
         ] = "position",
         department: Annotated[
-            str | None,
+            str | int | None,
             Field(
                 description=(
                     "Position form only: the department the position belongs to, "
@@ -1183,7 +1198,7 @@ def register_workforce_planning_tools(
             ),
         ] = None,
         job_profile: Annotated[
-            str | None,
+            str | int | None,
             Field(
                 description=(
                     "Position form only: a rough description of the role, such as "
@@ -1192,7 +1207,7 @@ def register_workforce_planning_tools(
             ),
         ] = None,
         manager: Annotated[
-            str | None,
+            str | int | None,
             Field(
                 description=(
                     "Position form only: who the position reports to, as the "
@@ -1202,7 +1217,7 @@ def register_workforce_planning_tools(
             ),
         ] = None,
         based_on_position: Annotated[
-            str | None,
+            str | int | None,
             Field(
                 description=(
                     "Position form only: an existing position the new one is "
@@ -1303,6 +1318,10 @@ def register_workforce_planning_tools(
         section plus one named-lists request per list a field draws from.
         """
         try:
+            department, job_profile, manager, based_on_position = (
+                _as_text(given)
+                for given in (department, job_profile, manager, based_on_position)
+            )
             layout = FORM_LAYOUTS[object_type]
             api = client()
             metadata = await asyncio.gather(
@@ -1502,7 +1521,7 @@ def register_workforce_planning_tools(
             ),
         ],
         values: Annotated[
-            list[str],
+            list[str | int],
             Field(
                 description=(
                     "The option names the user chose, e.g. ['Madrid', 'Lisbon']. "
@@ -1925,14 +1944,13 @@ def register_workforce_planning_tools(
     )
     async def hibob_get_positions_under(
         position: Annotated[
-            str,
+            str | int,
             Field(
                 description=(
                     "The position at the top: a position ID, a position name such "
                     "as 'P-0000000157', the HiBob employee ID or work email of the "
                     "person holding it, or that person's name."
                 ),
-                min_length=1,
             ),
         ],
         depth: Annotated[
@@ -1996,8 +2014,13 @@ def register_workforce_planning_tools(
         Rate limit: 100 requests/minute; this uses one.
         """
         try:
+            query = normalize_id(position)
+            if not query:
+                raise ValueError(
+                    "Name the position at the top: its ID or name, or its holder's "
+                    "employee ID, work email or name."
+                )
             api = client()
-            query = position.strip()
             employee_ids: list[str] = []
             if "@" in query:
                 employee_ids = await _employee_ids_for_email(api, query.lower())
@@ -2528,9 +2551,7 @@ def register_workforce_planning_tools(
         ),
     )
     async def hibob_update_position(
-        position_id: Annotated[
-            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
-        ],
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
         fields: Annotated[
             dict[str, Any],
             Field(
@@ -2651,9 +2672,7 @@ def register_workforce_planning_tools(
         ),
     )
     async def hibob_cancel_position(
-        position_id: Annotated[
-            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
-        ],
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
     ) -> str:
         """Cancel a planned position, removing it from the workforce plan.
 
@@ -2691,9 +2710,7 @@ def register_workforce_planning_tools(
         ),
     )
     async def hibob_create_position_opening(
-        position_id: Annotated[
-            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
-        ],
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
         fields: Annotated[
             dict[str, Any],
             Field(
@@ -2785,12 +2802,8 @@ def register_workforce_planning_tools(
         ),
     )
     async def hibob_update_position_opening(
-        position_id: Annotated[
-            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
-        ],
-        opening_id: Annotated[
-            str, Field(description=OPENING_REF_DESCRIPTION, min_length=1)
-        ],
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
+        opening_id: Annotated[str | int, Field(description=OPENING_REF_DESCRIPTION)],
         fields: Annotated[
             dict[str, Any],
             Field(
@@ -2869,12 +2882,8 @@ def register_workforce_planning_tools(
         ),
     )
     async def hibob_delete_position_opening(
-        position_id: Annotated[
-            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
-        ],
-        opening_id: Annotated[
-            str, Field(description=OPENING_REF_DESCRIPTION, min_length=1)
-        ],
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
+        opening_id: Annotated[str | int, Field(description=OPENING_REF_DESCRIPTION)],
     ) -> str:
         """Permanently remove an opening from a position.
 
@@ -2922,9 +2931,7 @@ def register_workforce_planning_tools(
         ),
     )
     async def hibob_create_position_budget(
-        position_id: Annotated[
-            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
-        ],
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
         fields: Annotated[
             dict[str, Any],
             Field(
@@ -3013,15 +3020,13 @@ def register_workforce_planning_tools(
         ),
     )
     async def hibob_update_position_budget(
-        position_id: Annotated[
-            str, Field(description=POSITION_REF_DESCRIPTION, min_length=1)
-        ],
+        position_id: Annotated[str | int, Field(description=POSITION_REF_DESCRIPTION)],
         fields: Annotated[
             dict[str, Any],
             Field(description="Budget fields to change, as a flat mapping."),
         ],
         budget_id: Annotated[
-            str | None,
+            str | int | None,
             Field(
                 description=(
                     "ID of the budget to update. Optional: a position has one "
