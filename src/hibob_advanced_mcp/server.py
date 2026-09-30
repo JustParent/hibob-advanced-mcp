@@ -19,6 +19,7 @@ from .config import (
     ENV_SERVICE_USER_TOKEN,
     load_settings,
 )
+from .tasks import register_tasks_tools
 from .workforce_planning import register_workforce_planning_tools
 
 SERVER_NAME = "hibob_advanced_mcp"
@@ -34,6 +35,7 @@ def build_server(read_only: bool | None = None) -> FastMCP:
         read_only = load_settings().read_only
     mcp = FastMCP(SERVER_NAME)
     register_workforce_planning_tools(mcp, read_only=read_only)
+    register_tasks_tools(mcp, read_only=read_only)
     return mcp
 
 
