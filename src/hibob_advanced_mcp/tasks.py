@@ -32,7 +32,9 @@ def _path_id(value: object, what: str) -> str:
     return quote(text, safe="")
 
 
-async def find_employees_by_email(client: HiBobClient, email: str) -> list[dict[str, Any]]:
+async def find_employees_by_email(
+    client: HiBobClient, email: str
+) -> list[dict[str, Any]]:
     """Employees whose work email is ``email``: ID, display name and email."""
     body = {
         "fields": ["root.id", "root.displayName", "root.email"],
@@ -77,12 +79,17 @@ def register_tasks_tools(
         return client_factory()
 
     read_annotations = dict(
-        readOnlyHint=True, destructiveHint=False, idempotentHint=True, openWorldHint=True
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
     )
 
     @mcp.tool(
         name="hibob_list_open_tasks",
-        annotations=ToolAnnotations(title="List all open HiBob tasks", **read_annotations),
+        annotations=ToolAnnotations(
+            title="List all open HiBob tasks", **read_annotations
+        ),
     )
     async def hibob_list_open_tasks() -> str:
         """List every open task in the company.
@@ -102,7 +109,9 @@ def register_tasks_tools(
 
     @mcp.tool(
         name="hibob_find_employee",
-        annotations=ToolAnnotations(title="Find a HiBob employee by email", **read_annotations),
+        annotations=ToolAnnotations(
+            title="Find a HiBob employee by email", **read_annotations
+        ),
     )
     async def hibob_find_employee(
         email: Annotated[str, Field(description="The employee's work email address.")],
@@ -126,7 +135,9 @@ def register_tasks_tools(
 
     @mcp.tool(
         name="hibob_get_employee_tasks",
-        annotations=ToolAnnotations(title="Get a HiBob employee's tasks", **read_annotations),
+        annotations=ToolAnnotations(
+            title="Get a HiBob employee's tasks", **read_annotations
+        ),
     )
     async def hibob_get_employee_tasks(
         employee_id: Annotated[

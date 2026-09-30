@@ -81,9 +81,7 @@ def server_factory(client: HiBobClient):
             client_factory=lambda: client,
             list_cache=list_cache,
         )
-        register_tasks_tools(
-            mcp, read_only=read_only, client_factory=lambda: client
-        )
+        register_tasks_tools(mcp, read_only=read_only, client_factory=lambda: client)
         return mcp
 
     return build

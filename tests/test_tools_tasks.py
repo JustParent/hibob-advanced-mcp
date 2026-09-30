@@ -64,7 +64,9 @@ async def test_get_employee_tasks_403_names_tasks_permission(
     mock_api, mcp_server
 ) -> None:
     mock_api.get("/tasks/people/42").mock(return_value=httpx.Response(403, json={}))
-    text = await call_tool(mcp_server, "hibob_get_employee_tasks", {"employee_id": "42"})
+    text = await call_tool(
+        mcp_server, "hibob_get_employee_tasks", {"employee_id": "42"}
+    )
     assert text.startswith("Error:")
     assert "tasks" in text
     assert "Manage positions" not in text
@@ -97,4 +99,6 @@ async def test_complete_task_404_points_at_task_ids(mock_api, mcp_server) -> Non
 
 async def test_complete_task_absent_in_read_only(server_factory) -> None:
     with pytest.raises(ToolError):
-        await call_tool(server_factory(read_only=True), "hibob_complete_task", {"task_id": "1"})
+        await call_tool(
+            server_factory(read_only=True), "hibob_complete_task", {"task_id": "1"}
+        )
