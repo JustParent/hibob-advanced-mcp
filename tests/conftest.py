@@ -25,6 +25,7 @@ from hibob_advanced_mcp.config import (
     ENV_SERVICE_USER_TOKEN,
     load_settings,
 )
+from hibob_advanced_mcp.tasks import register_tasks_tools
 from hibob_advanced_mcp.workforce_planning import register_workforce_planning_tools
 
 API_BASE = "https://api.hibob.com/v1"
@@ -80,6 +81,7 @@ def server_factory(client: HiBobClient):
             client_factory=lambda: client,
             list_cache=list_cache,
         )
+        register_tasks_tools(mcp, read_only=read_only, client_factory=lambda: client)
         return mcp
 
     return build

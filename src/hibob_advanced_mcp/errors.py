@@ -34,6 +34,8 @@ TOTAL_COST_NOTE = (
     "one without their approval."
 )
 
+TASKS_PERMISSION = "access to tasks (read and complete) in the Tasks API"
+
 RATE_LIMITS_SUMMARY = (
     "position/opening/budget writes: 10/min, searches: 100/min, metadata: 50/min"
 )
@@ -110,6 +112,8 @@ def _permission_for(path: str) -> str:
 
     Budget writes need their own permission; budget searches do not.
     """
+    if path.startswith("/v1/tasks") or path == "/tasks":
+        return TASKS_PERMISSION
     if "/workforce-planning/" in path and "/position-budget" in path:
         return BUDGET_PERMISSION_PATH
     return MANAGE_POSITIONS_PERMISSION_PATH
@@ -157,6 +161,12 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             f"HiBob has no named list called {list_name!r} (404). Call "
             "hibob_get_company_named_lists without list_name to see the "
             "available list names."
+        )
+    elif status == 404 and "/tasks" in path:
+        message = (
+            f"HiBob returned 404 for {path}. Check the task or employee ID - "
+            "hibob_list_open_tasks lists task IDs and hibob_find_employee finds "
+            "employee IDs."
         )
     elif status == 404:
         message = (
