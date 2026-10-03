@@ -100,30 +100,74 @@ class HiBobClient:
 
         Returns ``None`` for empty bodies (HiBob answers some writes with 204).
         """
-        self._require_credentials()
-        client = self._get_client()
-
-        attempt = 0
-        while True:
-            response = await client.request(method, path, json=json)
-            if (
-                is_read
-                and response.status_code in RETRYABLE_STATUSES
-                and attempt < MAX_READ_RETRIES
-            ):
-                await self._sleep(self._retry_delay(response, attempt))
-                attempt += 1
-                continue
-            break
-
-        raise_for_hibob_error(response)
-
+        response = await self.request_response(method, path, json=json, is_read=is_read)
         if response.status_code == 204 or not response.content:
             return None
         try:
             return response.json()
         except ValueError:
             return response.text
+
+    async def request_response(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: Any | None = None,
+        params: dict[str, Any] | None = None,
+        is_read: bool = False,
+        max_bytes: int | None = None,
+    ) -> httpx.Response:
+        """Retain status, headers and bytes for report downloads.
+
+        A byte limit is enforced on the decoded stream, including responses
+        without Content-Length. Redirects are never followed. Existing JSON
+        callers share the same authentication, error handling and retry policy.
+        """
+        if max_bytes is not None and max_bytes < 1:
+            raise ValueError("max_bytes must be positive.")
+        self._require_credentials()
+        client = self._get_client()
+        attempt = 0
+        while True:
+            async with client.stream(
+                method, path, json=json, params=params
+            ) as response:
+                retry = (
+                    is_read
+                    and response.status_code in RETRYABLE_STATUSES
+                    and attempt < MAX_READ_RETRIES
+                )
+                if not retry:
+                    if max_bytes is None:
+                        await response.aread()
+                    else:
+                        content = bytearray()
+                        async for chunk in response.aiter_bytes():
+                            if len(content) + len(chunk) > max_bytes:
+                                raise ValueError(
+                                    f"HiBob response exceeds {max_bytes} bytes. "
+                                    "Narrow the report in Bob; "
+                                    "no partial data returned."
+                                )
+                            content.extend(chunk)
+                        response = httpx.Response(
+                            response.status_code,
+                            headers={
+                                key: value
+                                for key, value in response.headers.items()
+                                if key not in {"content-encoding", "content-length"}
+                            },
+                            content=bytes(content),
+                            request=response.request,
+                        )
+            if retry:
+                await self._sleep(self._retry_delay(response, attempt))
+                attempt += 1
+                continue
+            break
+        raise_for_hibob_error(response)
+        return response
 
     async def get(self, path: str) -> Any:
         return await self.request("GET", path, is_read=True)

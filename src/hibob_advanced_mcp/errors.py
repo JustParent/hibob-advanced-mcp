@@ -35,6 +35,11 @@ TOTAL_COST_NOTE = (
 )
 
 TASKS_PERMISSION = "access to tasks (read and complete) in the Tasks API"
+REPORTS_PERMISSION = (
+    "Features > Reports > View reports according to people's data access rights, "
+    "plus People's Data access for the report's employees and fields; reports "
+    "with formulas also need Features > Formulas in Grids > View formulas in grids"
+)
 
 RATE_LIMITS_SUMMARY = (
     "position/opening/budget writes: 10/min, searches: 100/min, metadata: 50/min"
@@ -114,6 +119,8 @@ def _permission_for(path: str) -> str:
     """
     if path.startswith("/v1/tasks") or path == "/tasks":
         return TASKS_PERMISSION
+    if "/company/reports" in path:
+        return REPORTS_PERMISSION
     if "/workforce-planning/" in path and "/position-budget" in path:
         return BUDGET_PERMISSION_PATH
     return MANAGE_POSITIONS_PERMISSION_PATH
@@ -156,6 +163,13 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             f"{_permission_for(path)}. If your HiBob account restricts "
             "API access by IP, also allow this server's outbound IP address."
         )
+    elif status == 404 and "/company/reports" in path:
+        message = (
+            "HiBob returned 404 for the report. Check the report ID using "
+            "hibob_list_reports and the service user's report/data permissions. "
+            "For generated files use the report_name returned by "
+            "hibob_generate_report; the file may no longer be available."
+        )
     elif status == 404 and (list_name := _named_list_from_path(path)):
         message = (
             f"HiBob has no named list called {list_name!r} (404). Call "
@@ -175,9 +189,21 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             "look up current IDs."
         )
     elif status == 429:
+        limits = (
+            "reports: 20/min per endpoint"
+            if "/company/reports" in path
+            else RATE_LIMITS_SUMMARY
+        )
         message = (
             f"HiBob rate limit exceeded (429). Wait {_retry_after_seconds(response)} "
-            f"seconds before retrying. Limits are {RATE_LIMITS_SUMMARY}."
+            f"seconds before retrying. Limits are {limits}."
+        )
+    elif status == 400 and "/company/reports" in path:
+        message = (
+            "HiBob rejected the report request (400)"
+            + (f": {detail.rstrip('.')}." if detail else ".")
+            + " Check the report ID, format and locale. Configure report filters "
+            "in Bob's UI; the download API does not accept change-date filters."
         )
     elif (
         status == 400
