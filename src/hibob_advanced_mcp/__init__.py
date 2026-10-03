@@ -1,4 +1,4 @@
-"""MCP server for the HiBob Workforce Planning API."""
+"""MCP server for HiBob workforce planning, tasks and reports."""
 
 from .server import build_server, main
 

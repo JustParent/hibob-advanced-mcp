@@ -1,4 +1,4 @@
-"""MCP server exposing the HiBob Workforce Planning API.
+"""MCP server exposing HiBob workforce planning, tasks and reports.
 
 Runs over stdio. Configuration comes from the environment; see config.py.
 """
@@ -19,6 +19,7 @@ from .config import (
     ENV_SERVICE_USER_TOKEN,
     load_settings,
 )
+from .reports import register_reports_tools
 from .tasks import register_tasks_tools
 from .workforce_planning import register_workforce_planning_tools
 
@@ -36,6 +37,7 @@ def build_server(read_only: bool | None = None) -> FastMCP:
     mcp = FastMCP(SERVER_NAME)
     register_workforce_planning_tools(mcp, read_only=read_only)
     register_tasks_tools(mcp, read_only=read_only)
+    register_reports_tools(mcp)
     return mcp
 
 
@@ -69,7 +71,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog="hibob-advanced-mcp",
         description=(
-            "MCP server for the HiBob Workforce Planning API. Reads "
+            "MCP server for HiBob workforce planning, tasks and reports. Reads "
             f"{ENV_SERVICE_USER_ID}, {ENV_SERVICE_USER_TOKEN}, and optionally "
             f"{ENV_API_HOST} and {ENV_READ_ONLY} from the environment."
         ),

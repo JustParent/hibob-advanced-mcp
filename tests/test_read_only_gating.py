@@ -21,6 +21,10 @@ READ_TOOLS = {
     "hibob_list_open_tasks",
     "hibob_find_employee",
     "hibob_get_employee_tasks",
+    "hibob_list_reports",
+    "hibob_download_report",
+    "hibob_generate_report",
+    "hibob_download_generated_report",
 }
 
 WRITE_TOOLS = {
