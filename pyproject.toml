@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "hibob-advanced-mcp"
 version = "0.1.0"
-description = "MCP server for the HiBob Workforce Planning API (positions, openings, budgets)"
+description = "MCP server for HiBob workforce planning, tasks and reports"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"

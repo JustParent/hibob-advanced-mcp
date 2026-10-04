@@ -1,8 +1,8 @@
 # hibob-advanced-mcp
 
-An MCP server for HiBob's [Workforce Planning API](https://apidocs.hibob.com/reference/workforce-planning) — planned positions, their openings, and their budgets.
+An MCP server for HiBob's [Workforce Planning API](https://apidocs.hibob.com/reference/workforce-planning), tasks, and [Reports API](https://apidocs.hibob.com/reference/reports).
 
-This complements a standard HiBob HRIS integration rather than replacing it. Common HRIS functionality (people, time off, documents) belongs in the main integration; this server exposes the workforce planning surface that has no equivalent in other HRIS systems, so it can be enabled only for the customers who plan headcount in HiBob.
+This complements a standard HiBob HRIS integration. Common HRIS functionality (people, time off, documents) belongs in the main integration; this server adds planned positions, openings, budgets, tasks and access to saved reports.
 
 It runs over stdio, is installable with `uvx`, and authenticates with a HiBob **API service user**.
 
@@ -15,10 +15,12 @@ It runs over stdio, is installable with `uvx`, and authenticates with a HiBob **
 
    To use the tasks tools, also grant the service user access to the **Tasks API** (read, and complete for `hibob_complete_task`).
 
-   Service users have no permissions by default. Without this grant every call returns 403, and this server will tell you to add exactly this permission.
+   Reports need **Features → Reports → View reports according to people's data access rights**, plus access to the employees and fields included in each report. Reports containing formulas also need **Features → Formulas in Grids → View formulas in grids**. Reports do not require the workforce planning permission.
+
+   Service users have no permissions by default. The server identifies the relevant permission when an endpoint denies access.
 3. If your HiBob account restricts API access by IP address, allow the outbound IP of wherever this server runs.
 
-Read-only use still needs the same grant — HiBob does not offer a narrower workforce planning permission. Use `HIBOB_READ_ONLY=true` (below) if you want the server itself to refuse to make changes.
+Read-only workforce planning use still needs the same workforce planning grant. Use `HIBOB_READ_ONLY=true` (below) to omit employee/task/workforce mutation tools; report generation and downloads remain available.
 
 ## Configuration
 
@@ -27,7 +29,7 @@ Read-only use still needs the same grant — HiBob does not offer a narrower wor
 | `HIBOB_SERVICE_USER_ID` | yes | Service user ID (the Basic auth username). |
 | `HIBOB_SERVICE_USER_TOKEN` | yes | Service user token (the Basic auth password). |
 | `HIBOB_API_HOST` | no | Defaults to production (`api.hibob.com`). Set `api.sandbox.hibob.com` for HiBob's sandbox. A pasted URL such as `https://api.sandbox.hibob.com/v1` is accepted; only the hostname is used. |
-| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the fourteen read tools; the ten write tools are not exposed at all. |
+| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the eighteen read tools; the ten write tools are not exposed at all. |
 
 Standard proxy variables (`HTTPS_PROXY`, `ALL_PROXY`) are honoured. A SOCKS5 proxy needs the optional `socks` extra — see the install line below.
 
@@ -122,6 +124,10 @@ Field IDs are passed as flat mappings, for example `{"/position/fte": 100}`. The
 | `hibob_list_open_tasks` | `GET /tasks` (HiBob caps this at 5,000 tasks, with no pagination) | — |
 | `hibob_find_employee` | `POST /people/search` on work email; returns each match's ID, name and email | — |
 | `hibob_get_employee_tasks` | `GET /tasks/people/{id}`, optionally filtered to open or closed | — |
+| `hibob_list_reports` | `GET /company/reports`, permission-filtered saved report metadata | 20/min |
+| `hibob_download_report` | `GET /company/reports/{reportId}/download`, JSON/CSV/XLSX | 20/min |
+| `hibob_generate_report` | `GET /company/reports/{reportId}/download-async`, CSV/XLSX | 20/min |
+| `hibob_download_generated_report` | `GET /company/reports/download/{reportName}`, one poll | 20/min |
 
 Search results come back as `{"count": N, "entries": [{"values": {...}, "display": {...}}]}`. `values` holds the raw values including the IDs the write tools need; `display` holds HiBob's human-readable labels. The opening and budget searches are cursor-paginated and return `has_more` and `next_cursor`; the budget search takes a `limit` up to 1000 (HiBob rejects anything larger), which is one page for most companies. **Position search has no pagination** and ignores `limit` entirely, so request only the fields you need and filter where you can.
 
@@ -165,6 +171,67 @@ Writes are limited to ten calls a minute, so required fields are validated befor
 `hibob_create_position` creates one position per call, together with its first opening (HiBob requires one) and an optional budget. HiBob's API cannot give a new position a budget end date, so a role that ends takes `cancellation_date` instead: once the position is created, its cancellation is scheduled for that day (a second write call, and the same endpoint as `hibob_schedule_position_cancellation`). The date must fall after the budget date and the opening's expected start date, and is checked before anything is sent; `/position/endEffectiveDate` in `position_fields` is refused with a pointer to it. If the scheduling fails after the create, the result still carries the new IDs, with `verified: false` and HiBob's reason.
 
 `hibob_cancel_position` cancels a position now; HiBob refuses it for a filled position. `hibob_schedule_position_cancellation` cancels one on a later date instead, such as when a fixed-term role ends: until then the position shows as "Cancelled soon", and at midnight on the date HiBob cancels it and unassigns whoever holds it. HiBob's API documents no way to undo a scheduled cancellation, so the tool looks the position up first and refuses, before anything is sent, a position already cancelled or cancelled soon, a date that is not a real day today or later, and a filled, starting or departing position unless `unassign_holder` is true, the error naming the holder so the user can be asked. The position is read back afterwards with its status and budget end date.
+
+## Reports
+
+Configure a report and its filters in Bob, then call `hibob_list_reports` to
+find its numeric ID. The API returns only reports and data visible to the
+service user; a successful response does not prove the service user can see
+the entire workforce or every requested field.
+
+For programmatic use, download JSON with machine-readable values:
+
+```json
+{"report_id": 12345, "format": "json", "include_info": true}
+```
+
+Pass this to `hibob_download_report`. The result contains `status: "ready"`,
+the parsed `data`, `byte_count`, and a SHA-256 checksum of the downloaded
+bytes. `human_readable: "APPEND"` includes labels alongside IDs;
+`"REPLACE"` replaces IDs with labels. This option is valid only for JSON.
+An optional `locale` selects the report's column language.
+
+CSV is returned as `text`, preserving leading zeroes, duplicate column names,
+metadata rows and embedded newlines. XLSX is returned as `data_base64` with
+`encoding: "base64"`. The server does not write files or silently truncate
+reports. It enforces a 10 MiB decoded response limit, including compressed and
+chunked downloads. Narrow the saved report if it exceeds that limit. Consume
+large outputs in code and pass summaries to the agent to control context size.
+
+For reports that take longer to generate:
+
+1. Call `hibob_generate_report` with `report_id`, `format` (`csv` or `xlsx`),
+   and optionally `include_info`/`locale`.
+2. Persist the returned `report_name` and `format`. `status: "accepted"`
+   means generation has started, not that the file is ready.
+3. Call `hibob_download_generated_report` with that name and format.
+   `status: "pending"` means Bob returned 204; poll the **same file** later.
+   `status: "ready"` contains the complete data in the format above.
+
+Each call performs one poll, with no long-running sleep loop. Downloads retry
+transient HTTP errors using the shared read policy; starting generation is
+never automatically retried because another request can create another file.
+Respect the Reports API's **20 requests/minute per endpoint** limit. A generated
+file's availability is controlled by Bob; persist successful downloads if you
+need reproducible inputs. There is no server-side report cache.
+
+The async endpoint's documented format enum lists CSV/XLSX; JSON is exposed
+through the direct download endpoint. The returned `Location` is used only
+to extract a file name. Downloads always use the configured API host and never
+follow redirects or send credentials to the supplied location's host.
+
+Reports are saved queries, not a durable event log. The download APIs do not
+accept an arbitrary `since` cursor: date conditions belong to the report in
+Bob. Validate which fields, deleted rows and effective-date changes a report
+actually includes before treating it as a change feed. Keep downstream
+processing checkpoints separately.
+
+Official API contracts:
+[list](https://apidocs.hibob.com/reference/get_company-reports),
+[download](https://apidocs.hibob.com/reference/get_company-reports-reportid-download),
+[generate](https://apidocs.hibob.com/reference/get_company-reports-reportid-download-async),
+[poll](https://apidocs.hibob.com/reference/get_company-reports-download-reportname),
+[permissions and limits](https://apidocs.hibob.com/reference/reports).
 
 ## Field cheat sheet
 

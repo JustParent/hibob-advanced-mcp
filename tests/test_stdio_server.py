@@ -75,9 +75,11 @@ async def test_server_lists_every_tool_over_stdio() -> None:
         return {tool.name for tool in (await session.list_tools()).tools}
 
     names = await _with_session(_params(), body)
-    assert len(names) == 24
+    assert len(names) == 28
     assert "hibob_search_positions" in names
     assert "hibob_create_position" in names
+    assert "hibob_download_report" in names
+    assert "hibob_generate_report" in names
 
 
 async def test_read_only_mode_hides_write_tools_over_stdio() -> None:
@@ -85,7 +87,9 @@ async def test_read_only_mode_hides_write_tools_over_stdio() -> None:
         return {tool.name for tool in (await session.list_tools()).tools}
 
     names = await _with_session(_params(HIBOB_READ_ONLY="true"), body)
-    assert len(names) == 14
+    assert len(names) == 18
+    assert "hibob_list_reports" in names
+    assert "hibob_download_generated_report" in names
     assert not any(
         name.startswith(
             ("hibob_create", "hibob_update", "hibob_cancel", "hibob_delete")
@@ -129,7 +133,7 @@ async def test_server_still_works_while_warning_on_stderr() -> None:
         body,
     )
 
-    assert tool_count == 24
+    assert tool_count == 28
     # The call fails because the host is unroutable, not because of bad framing.
     assert text.startswith("Error:")
 
@@ -151,6 +155,9 @@ async def test_stdout_carries_only_json_rpc() -> None:
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        # tools/list is one JSON-RPC line; the expanded catalog exceeds
+        # asyncio's default 64 KiB line limit. The SDK transport handles it.
+        limit=1024 * 1024,
         env=_server_env(
             HIBOB_SERVICE_USER_ID="fake-id",
             HIBOB_SERVICE_USER_TOKEN="fake-token",
