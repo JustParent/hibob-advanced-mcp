@@ -21,6 +21,9 @@ from .people_fields import read_field
 PEOPLE_SEARCH_PATH = "/people/search"
 IDENTITY_FIELDS = ["root.id", "root.displayName", "root.email", "work.title"]
 MAX_CANDIDATES = 5
+EMPLOYEE_REF_DESCRIPTION = (
+    "The employee, by HiBob employee ID, work email or display name."
+)
 
 
 @dataclass(frozen=True)

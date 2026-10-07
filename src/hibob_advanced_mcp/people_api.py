@@ -70,11 +70,11 @@ async def named_list(
 
 
 def _one_employee(payload: Any) -> dict[str, Any] | None:
+    """The record in a read; HiBob returns it bare. ("employee" is one of
+    HiBob's field categories, so it is never taken for a wrapper.)"""
     if isinstance(payload, dict) and isinstance(payload.get("employees"), list):
         employees = payload["employees"]
         return employees[0] if employees and isinstance(employees[0], dict) else None
-    if isinstance(payload, dict) and isinstance(payload.get("employee"), dict):
-        return payload["employee"]
     return payload if isinstance(payload, dict) else None
 
 

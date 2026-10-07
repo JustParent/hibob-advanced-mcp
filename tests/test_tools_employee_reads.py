@@ -7,7 +7,7 @@ import json
 import httpx
 
 from conftest import call_tool
-from people_data import FakePeople
+from people_data import EMPLOYEE_ID, FakePeople
 
 
 async def test_list_fields_says_how_each_is_written(mock_api, mcp_server) -> None:
@@ -57,3 +57,91 @@ async def test_list_fields_is_available_in_read_only_mode(
         server_factory(read_only=True), "hibob_list_employee_fields", {}
     )
     assert not text.startswith("Error:")
+
+
+async def test_get_employee_default_fields_with_display_labels(
+    mock_api, mcp_server
+) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await call_tool(mcp_server, "hibob_get_employee", {"employee": "jane@x.com"})
+    )
+    assert result["employee"]["id"] == EMPLOYEE_ID
+    by_id = {entry["id"]: entry for entry in result["fields"]}
+    assert by_id["work.title"]["value"] == "101"
+    assert by_id["work.title"]["display"] == "Analyst"
+    assert by_id["work.title"]["field"] == "Work > Job title"
+    assert by_id["work.startDate"]["value"] == "2024-03-01"
+    assert "work.siteId" in by_id
+    assert "work.site" not in by_id
+
+
+async def test_get_employee_named_fields_by_label(mock_api, mcp_server) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_employee",
+            {"employee": "Jane Smith", "fields": ["Mobile phone", "Shirt size"]},
+        )
+    )
+    assert [(e["id"], e["value"], e["display"]) for e in result["fields"]] == [
+        ("home.mobilePhone", "07700 900000", None),
+        ("work.custom.field_100", "L", "Large"),
+    ]
+
+
+async def test_get_employee_unknown_or_ambiguous_field_is_an_error(
+    mock_api, mcp_server
+) -> None:
+    FakePeople(mock_api)
+    text = await call_tool(
+        mcp_server,
+        "hibob_get_employee",
+        {"employee": EMPLOYEE_ID, "fields": ["Start date", "Job titel"]},
+    )
+    assert text.startswith("Error:")
+    assert "Home > Start date" in text
+    assert "Job titel" in text
+
+
+async def test_get_employee_ambiguous_name_lists_candidates(
+    mock_api, mcp_server
+) -> None:
+    FakePeople(mock_api)
+    text = await call_tool(mcp_server, "hibob_get_employee", {"employee": "Alex Lee"})
+    assert text.startswith("Error:")
+    assert "alex.lee2@x.com" in text
+
+
+async def test_get_employee_history_reads_tables_and_reports_per_table_errors(
+    mock_api, mcp_server
+) -> None:
+    FakePeople(mock_api)
+    mock_api.get(f"/people/{EMPLOYEE_ID}/work").mock(
+        return_value=httpx.Response(
+            200, json={"values": [{"id": 1, "effectiveDate": "2024-03-01"}]}
+        )
+    )
+    mock_api.get(f"/people/custom-tables/{EMPLOYEE_ID}/about__table_1").mock(
+        return_value=httpx.Response(200, json={"values": [{"id": 5, "column_1": "x"}]})
+    )
+    mock_api.get(f"/people/{EMPLOYEE_ID}/salaries").mock(
+        return_value=httpx.Response(403, json={})
+    )
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_employee",
+            {
+                "employee": EMPLOYEE_ID,
+                "fields": ["Job title"],
+                "history": ["Work", "Certifications", "salary", "Holidays"],
+            },
+        )
+    )
+    history = result["history"]
+    assert history["Work"]["rows"][0]["id"] == 1
+    assert history["Certifications"]["rows"][0]["column_1"] == "x"
+    assert "People's fields" in history["salary"]["error"]
+    assert "Holidays" in history["Holidays"]["error"]

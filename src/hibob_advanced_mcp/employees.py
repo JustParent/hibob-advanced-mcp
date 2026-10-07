@@ -20,11 +20,29 @@ from pydantic import Field
 
 from .cache import NamedListCache
 from .client import HiBobClient, get_client
+from .employee_directory import (
+    EMPLOYEE_REF_DESCRIPTION,
+    EmployeeMatch,
+    describe_candidates,
+    find_employee,
+)
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
 from .list_values import named_list_items, resolve_list_values
-from .people_api import custom_tables, people_fields
-from .people_fields import describe_field
+from .people_api import (
+    HISTORY_TABLES,
+    custom_tables,
+    people_fields,
+    read_employee,
+    read_table,
+)
+from .people_fields import (
+    PeopleField,
+    describe_field,
+    find_fields,
+    nearest_fields,
+    read_field,
+)
 from .references import NOTHING_WRITTEN
 from .tasks import find_employees
 
@@ -106,6 +124,106 @@ async def _list_item_id(client: HiBobClient, list_name: str, value: Any) -> str:
     )
 
 
+DEFAULT_EMPLOYEE_FIELDS = (
+    "root.displayName",
+    "root.email",
+    "work.title",
+    "work.department",
+    "work.site",
+    "work.reportsTo",
+    "work.startDate",
+    "internal.status",
+)
+
+
+def require_employee(match: EmployeeMatch, ref: Any) -> dict[str, Any]:
+    """The matched employee, or a ValueError naming who it could be."""
+    if match.employee:
+        return match.employee
+    if match.ambiguous:
+        raise ValueError(
+            f"{str(ref)!r} matches several employees: "
+            f"{describe_candidates(match.candidates)}. Ask the user which one, "
+            "then pass their ID or work email."
+        )
+    hint = (
+        f" Closest: {describe_candidates(match.candidates)}."
+        if match.candidates
+        else ""
+    )
+    raise ValueError(f"No employee found for {str(ref)!r}.{hint}")
+
+
+def _placeholder(field_id: str) -> PeopleField:
+    """A default field the metadata did not describe, read by its ID."""
+    return PeopleField(
+        id=field_id,
+        label=field_id,
+        category="",
+        category_id="",
+        type="",
+        list_id=None,
+        json_path=field_id,
+        historical=False,
+        calculated=False,
+    )
+
+
+def _fields_to_read(
+    known: list[PeopleField], wanted: list[str] | None
+) -> list[PeopleField]:
+    if not wanted:
+        defaults = [
+            find_fields(known, field_id) for field_id in DEFAULT_EMPLOYEE_FIELDS
+        ]
+        return [
+            found[0] if len(found) == 1 else _placeholder(field_id)
+            for field_id, found in zip(DEFAULT_EMPLOYEE_FIELDS, defaults, strict=True)
+        ]
+    chosen: list[PeopleField] = []
+    problems: list[str] = []
+    for text in wanted:
+        matches = find_fields(known, text)
+        if len(matches) == 1:
+            chosen.append(matches[0])
+            continue
+        offered = matches or nearest_fields(known, text)
+        names = ", ".join(f"{f.qualified_label} ({f.id})" for f in offered) or "none"
+        what = "matches several fields" if matches else "matches no field"
+        problems.append(f"{text!r} {what}; candidates: {names}")
+    if problems:
+        raise ValueError(
+            "; ".join(problems) + ". hibob_list_employee_fields lists every field."
+        )
+    return chosen
+
+
+async def _history(
+    api: HiBobClient, cache: NamedListCache, employee_id: str, names: list[str]
+) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for name in names:
+        key = " ".join(str(name).lower().split())
+        try:
+            if key in HISTORY_TABLES:
+                out[name] = await read_table(api, employee_id, HISTORY_TABLES[key])
+                continue
+            tables = await custom_tables(api, cache)
+            table = next(
+                (t for t in tables if key in (t["id"].lower(), t["name"].lower())), None
+            )
+            if table is None:
+                known = sorted({*HISTORY_TABLES, *(t["name"] for t in tables)})
+                out[name] = {
+                    "error": f"No table called {name!r}. Tables: {', '.join(known)}."
+                }
+                continue
+            out[name] = await read_table(api, employee_id, table["id"], custom=True)
+        except Exception as exc:
+            out[name] = {"error": format_exception(exc)}
+    return out
+
+
 def register_employee_tools(
     mcp: FastMCP,
     *,
@@ -184,6 +302,78 @@ def register_employee_tools(
                     "custom_tables": tables,
                 }
             )
+            return _dump(result)
+        except Exception as exc:
+            return format_exception(exc)
+
+    @mcp.tool(
+        name="hibob_get_employee",
+        annotations=ToolAnnotations(
+            title="Get a HiBob employee's data", **read_annotations
+        ),
+    )
+    async def hibob_get_employee(
+        employee: Annotated[
+            str | int,
+            Field(description=EMPLOYEE_REF_DESCRIPTION),
+        ],
+        fields: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Fields to read, by label ('Job title') or ID ('work.title'). "
+                    "Omit for name, email, title, department, site, manager, "
+                    "start date and status."
+                )
+            ),
+        ] = None,
+        history: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Tables whose rows to include: work, employment, salary, "
+                    "lifecycle, variable pay, equity, training, bank accounts, "
+                    "or a custom table's name or ID."
+                )
+            ),
+        ] = None,
+    ) -> str:
+        """Read an employee's current values and, optionally, table history.
+
+        Each field comes back as {"field", "id", "value", "display"}: "value"
+        is what HiBob stores (list item IDs, employee IDs), "display" its
+        label where HiBob gives one. Inactive employees are found by ID or
+        email; names match active employees only. Each table in "history"
+        gives its rows newest first and any "restricted_columns" the service
+        user may not see, or an "error" for that table alone.
+
+        Returns:
+            str: JSON {"employee": {...}, "fields": [...], "history"?: {...}},
+            or an error beginning "Error:".
+        """
+        try:
+            api = client_factory()
+            person = require_employee(
+                await find_employee(api, cache, employee), employee
+            )
+            wanted = _fields_to_read(await people_fields(api, cache), fields)
+            record = await read_employee(
+                api, person["id"], [f.id for f in wanted], human_readable=True
+            )
+            values = []
+            for f in wanted:
+                value, display = read_field(record, f.id, f.json_path)
+                values.append(
+                    {
+                        "field": f.qualified_label,
+                        "id": f.id,
+                        "value": value,
+                        "display": display,
+                    }
+                )
+            result: dict[str, Any] = {"employee": person, "fields": values}
+            if history:
+                result["history"] = await _history(api, cache, person["id"], history)
             return _dump(result)
         except Exception as exc:
             return format_exception(exc)

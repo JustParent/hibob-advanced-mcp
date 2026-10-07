@@ -156,3 +156,13 @@ def test_real_read_fixture_gives_an_identity() -> None:
         return
     found = identity(json.loads(REAL_READ.read_text()))
     assert found is not None and found["id"]
+
+
+async def test_read_employee_keeps_hibobs_employee_category(
+    client: HiBobClient, mock_api: respx.MockRouter
+) -> None:
+    """HiBob has a category called "employee" (employee.buddy, ...); a read
+    asking for one of its fields must not be mistaken for a wrapped record."""
+    record = {"id": "9", "employee": {"buddy": None}, "work": {"siteId": 1}}
+    mock_api.post("/people/9").mock(return_value=httpx.Response(200, json=record))
+    assert await read_employee(client, "9", ["employee.buddy"]) == record
