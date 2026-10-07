@@ -15,7 +15,7 @@ EMPLOYEE_ID = "3332883884017713238"
 JANE = {"id": EMPLOYEE_ID, "displayName": "Jane Smith", "email": "jane@x.com"}
 TERMINATE = f"/employees/{EMPLOYEE_ID}/terminate"
 REASONS = {
-    "name": "terminationReason",
+    "name": "terminationreason",
     "values": [
         {"id": "Redundant", "name": "Redundant", "value": "Redundant"},
         {"id": "283510", "name": "Resigned", "value": "Resigned"},
@@ -110,7 +110,7 @@ async def test_unknown_or_ambiguous_employee_sends_nothing(
 
 async def test_sends_every_optional_field(mock_api, mcp_server) -> None:
     _people(mock_api, JANE)
-    mock_api.get("/company/named-lists/terminationReason").mock(
+    mock_api.get("/company/named-lists/terminationreason").mock(
         return_value=httpx.Response(200, json=REASONS)
     )
     mock_api.get("/company/named-lists/lifecycleReasonType").mock(
@@ -145,7 +145,7 @@ async def test_unmatched_reason_offers_candidates_and_sends_nothing(
     mock_api, mcp_server
 ) -> None:
     _people(mock_api, JANE)
-    mock_api.get("/company/named-lists/terminationReason").mock(
+    mock_api.get("/company/named-lists/terminationreason").mock(
         return_value=httpx.Response(200, json=REASONS)
     )
     route = _terminate(mock_api)
@@ -236,7 +236,7 @@ async def test_400_points_at_dates_and_reason_lists(mock_api, mcp_server) -> Non
         {"employee": EMPLOYEE_ID, "termination_date": "2026-10-31"},
     )
     assert "Invalid reason" in text
-    assert "terminationReason" in text
+    assert "terminationreason" in text
     assert "hibob_list_workforce_fields" not in text
 
 
@@ -253,7 +253,7 @@ async def test_denied_reason_list_does_not_blame_positions(
     mock_api, mcp_server
 ) -> None:
     _people(mock_api, JANE)
-    mock_api.get("/company/named-lists/terminationReason").mock(
+    mock_api.get("/company/named-lists/terminationreason").mock(
         return_value=httpx.Response(403, json={})
     )
     route = _terminate(mock_api)
@@ -267,6 +267,6 @@ async def test_denied_reason_list_does_not_blame_positions(
         },
     )
     assert text.startswith("Error:")
-    assert "terminationReason list" in text
+    assert "terminationreason list" in text
     assert "Manage positions" not in text
     assert not route.called

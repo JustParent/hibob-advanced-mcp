@@ -27,7 +27,8 @@ from .tasks import find_employees
 
 TERMINATE_PATH = "/employees/{employee_id}/terminate"
 NAMED_LIST_PATH = "/company/named-lists/{name}"
-TERMINATION_REASON_LIST = "terminationReason"
+# HiBob's list names are case-sensitive; this one is all lower case.
+TERMINATION_REASON_LIST = "terminationreason"
 REASON_TYPE_LIST = "lifecycleReasonType"
 
 
@@ -149,7 +150,7 @@ def register_employee_tools(
             Field(
                 description=(
                     "The reason, by name ('Resigned') or ID, from HiBob's "
-                    "terminationReason list."
+                    "terminationreason list."
                 )
             ),
         ] = None,

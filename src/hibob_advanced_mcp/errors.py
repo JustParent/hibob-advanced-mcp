@@ -226,7 +226,7 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             "HiBob rejected the termination (400)"
             + (f": {detail.rstrip('.')}." if detail else ".")
             + " Check the dates are YYYY-MM-DD and that the termination reason "
-            "and reason type are items of the company's terminationReason and "
+            "and reason type are items of the company's terminationreason and "
             "lifecycleReasonType lists."
         )
     elif status == 400 and "/people/" in path:
