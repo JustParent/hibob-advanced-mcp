@@ -27,6 +27,13 @@ from .employee_directory import (
     describe_candidates,
     find_employee,
 )
+from .employee_records import (
+    RECORD_TYPES,
+    custom_record_type,
+    describe_record_type,
+    find_record_types,
+    masked,
+)
 from .employee_updates import SleepFn, register_update_tools
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
@@ -35,6 +42,7 @@ from .people_api import (
     HISTORY_TABLES,
     custom_tables,
     people_fields,
+    read_bulk_rows,
     read_employee,
     read_table,
 )
@@ -208,7 +216,22 @@ async def _history(
         key = " ".join(str(name).lower().split())
         try:
             if key in HISTORY_TABLES:
-                out[name] = await read_table(api, employee_id, HISTORY_TABLES[key])
+                data = await read_table(api, employee_id, HISTORY_TABLES[key])
+                record = next(iter(find_record_types(RECORD_TYPES, key)), None)
+                if record is not None:
+                    data["rows"] = [masked(record, row) for row in data["rows"]]
+                out[name] = data
+                continue
+            bulk = next(
+                (rt for rt in RECORD_TYPES if rt.read == "bulk" and key in rt.names),
+                None,
+            )
+            if bulk is not None:
+                rows = await read_bulk_rows(api, employee_id, bulk.path)
+                out[name] = {
+                    "rows": [masked(bulk, row) for row in rows],
+                    "restricted_columns": {},
+                }
                 continue
             tables = await custom_tables(api, cache)
             table = next(
@@ -224,6 +247,15 @@ async def _history(
         except Exception as exc:
             out[name] = {"error": format_exception(exc)}
     return out
+
+
+async def _record_types(api: HiBobClient, cache: NamedListCache) -> list[Any]:
+    """The built-in record types and the company's custom tables."""
+    try:
+        tables = await custom_tables(api, cache)
+    except Exception:
+        tables = []
+    return [*RECORD_TYPES, *(custom_record_type(t) for t in tables)]
 
 
 def register_employee_tools(
@@ -255,7 +287,7 @@ def register_employee_tools(
             Field(
                 description=(
                     "Keep only fields whose label, ID or category contains this "
-                    "text, and custom tables whose name or columns do."
+                    "text, and custom tables and record types whose name or columns do."
                 )
             ),
         ] = None,
@@ -270,9 +302,13 @@ def register_employee_tools(
         and which are required.
 
         Returns:
-            str: JSON {"count": N, "fields": [...], "custom_tables": [...]},
-            with "custom_tables_error" if they could not be read, or an
-            error beginning "Error:".
+            str: JSON {"count": N, "fields": [...], "custom_tables": [...],
+            "record_types": [...]}, with "custom_tables_error" if the tables
+            could not be read, or an error beginning "Error:". record_types
+            are the tables that hold several rows (variable pay,
+            entitlements, deductions, equity, training, bank accounts,
+            dependents, right to work and custom tables) with their columns,
+            which are required, and whether they need an effective date.
         """
         try:
             api = client_factory()
@@ -284,6 +320,7 @@ def register_employee_tools(
                 tables = []
                 result["custom_tables_error"] = format_exception(exc)
             text = (search or "").strip().lower()
+            types = await _record_types(api, cache)
             if text:
                 fields = [
                     f
@@ -298,11 +335,18 @@ def register_employee_tools(
                     if text in t["name"].lower()
                     or any(text in c["label"].lower() for c in t["columns"])
                 ]
+                types = [
+                    t
+                    for t in types
+                    if text in t.label.lower()
+                    or any(text in c.label.lower() for c in t.columns)
+                ]
             result.update(
                 {
                     "count": len(fields),
                     "fields": [describe_field(f) for f in fields],
                     "custom_tables": tables,
+                    "record_types": [describe_record_type(t) for t in types],
                 }
             )
             return _dump(result)

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import httpx
+import pytest
 import respx
 
 from hibob_advanced_mcp.cache import NamedListCache
@@ -15,7 +16,12 @@ from hibob_advanced_mcp.employee_directory import (
     find_employee,
     identity,
 )
-from hibob_advanced_mcp.people_api import people_fields, read_employee, read_table
+from hibob_advanced_mcp.people_api import (
+    people_fields,
+    read_bulk_rows,
+    read_employee,
+    read_table,
+)
 from people_data import EMPLOYEE_ID, MANAGER_ID, FakePeople
 
 REAL_READ = Path(__file__).parent / "fixtures" / "people" / "employee_read.json"
@@ -166,3 +172,28 @@ async def test_read_employee_keeps_hibobs_employee_category(
     record = {"id": "9", "employee": {"buddy": None}, "work": {"siteId": 1}}
     mock_api.post("/people/9").mock(return_value=httpx.Response(200, json=record))
     assert await read_employee(client, "9", ["employee.buddy"]) == record
+
+
+async def test_read_bulk_rows_returns_one_employees_rows_newest_first(
+    client: HiBobClient, mock_api: respx.MockRouter
+) -> None:
+    fake = FakePeople(mock_api)
+    fake.add_record(
+        "entitlement", effectiveDate="2025-01-01", entitlement="Company Car"
+    )
+    fake.add_record(
+        "entitlement", effectiveDate="2026-01-01", entitlement="Lunch vouchers"
+    )
+    rows = await read_bulk_rows(client, EMPLOYEE_ID, "entitlement")
+    assert [r["effectiveDate"] for r in rows] == ["2026-01-01", "2025-01-01"]
+
+
+async def test_read_bulk_rows_raises_when_hibob_reports_an_error_for_the_employee(
+    client: HiBobClient, mock_api: respx.MockRouter
+) -> None:
+    fake = FakePeople(mock_api)
+    fake.bulk_errors["deduction"] = [
+        {EMPLOYEE_ID: {"error": "MISSING_PERMISSION", "message": "No access"}}
+    ]
+    with pytest.raises(ValueError, match="No access"):
+        await read_bulk_rows(client, EMPLOYEE_ID, "deduction")

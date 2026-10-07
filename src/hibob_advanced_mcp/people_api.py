@@ -123,3 +123,38 @@ async def read_table(
             restricted = payload["restricted_columns"]
     rows.sort(key=lambda row: str(row.get("effectiveDate") or ""), reverse=True)
     return {"rows": rows, "restricted_columns": restricted}
+
+
+BULK_PATH = "/bulk/people/{table}"
+
+
+async def read_bulk_rows(
+    client: HiBobClient, employee_id: str, table: str
+) -> list[dict[str, Any]]:
+    """One employee's rows of a table HiBob only reads in bulk, newest first.
+
+    Raises ValueError if HiBob reports an error for the employee (its bulk
+    reads answer 200 with the error in the body).
+    """
+    path = (
+        BULK_PATH.format(table=quote(table, safe=""))
+        + f"?employeeIds={quote(employee_id, safe='')}&limit=200"
+    )
+    payload = await client.get(path)
+    rows: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        for entry in payload.get("errors") or []:
+            if isinstance(entry, dict) and employee_id in entry:
+                detail = entry[employee_id]
+                message = detail.get("message") if isinstance(detail, dict) else detail
+                raise ValueError(
+                    f"HiBob would not return this employee's {table} rows: {message}"
+                )
+        for result in payload.get("results") or []:
+            if (
+                isinstance(result, dict)
+                and str(result.get("employeeId")) == employee_id
+            ):
+                rows += [r for r in result.get("values") or [] if isinstance(r, dict)]
+    rows.sort(key=lambda row: str(row.get("effectiveDate") or ""), reverse=True)
+    return rows

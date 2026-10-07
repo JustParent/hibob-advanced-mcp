@@ -320,6 +320,86 @@ LISTS: dict[str, dict[str, Any]] = {
             {"id": "Monthly", "name": "Monthly", "value": "Monthly"},
         ],
     },
+    "payType": {
+        "name": "payType",
+        "values": [
+            {"id": "Bonus", "name": "Bonus", "value": "Bonus"},
+            {
+                "id": "Executive bonus",
+                "name": "Executive bonus",
+                "value": "Executive bonus",
+            },
+            {"id": "Commission", "name": "Commission", "value": "Commission"},
+        ],
+    },
+    "variablePayPeriod": {
+        "name": "variablePayPeriod",
+        "values": [
+            {"id": "Monthly", "name": "Monthly", "value": "Monthly"},
+            {"id": "Annual", "name": "Annual", "value": "Annual"},
+            {"id": "Quarterly", "name": "Quarterly", "value": "Quarterly"},
+        ],
+    },
+    "entitlementType": {
+        "name": "entitlementType",
+        "values": [
+            {"id": "ET1", "name": "Lunch vouchers", "value": "Lunch vouchers"},
+            {"id": "ET2", "name": "Company Car", "value": "Company Car"},
+        ],
+    },
+    "deductionType": {
+        "name": "deductionType",
+        "values": [
+            {"id": "Company Car", "name": "Company Car", "value": "Company Car"},
+            {"id": "Cycle to work", "name": "Cycle to work", "value": "Cycle to work"},
+        ],
+    },
+    "trainingName": {
+        "name": "trainingName",
+        "values": [{"id": "Training", "name": "Training", "value": "Training"}],
+    },
+    "trainingStatus": {
+        "name": "trainingStatus",
+        "values": [
+            {"id": "Invited", "name": "Invited", "value": "Invited"},
+            {"id": "Completed", "name": "Completed", "value": "Completed"},
+        ],
+    },
+    "trainingFrequency": {
+        "name": "trainingFrequency",
+        "values": [
+            {"id": "Once", "name": "Once", "value": "Once"},
+            {"id": "Yearly", "name": "Yearly", "value": "Yearly"},
+        ],
+    },
+    "bankaccounttype": {
+        "name": "bankaccounttype",
+        "values": [
+            {"id": "Current", "name": "Current", "value": "Current"},
+            {"id": "Savings", "name": "Savings", "value": "Savings"},
+        ],
+    },
+    "allocation": {
+        "name": "allocation",
+        "values": [
+            {"id": "percent", "name": "%", "value": "%"},
+            {"id": "remaining", "name": "Remaining", "value": "Remaining"},
+        ],
+    },
+    "legalGender": {
+        "name": "legalGender",
+        "values": [
+            {"id": "Female", "name": "Female", "value": "Female"},
+            {"id": "Male", "name": "Male", "value": "Male"},
+        ],
+    },
+    "certs": {
+        "name": "certs",
+        "values": [
+            {"id": "C1", "name": "First aid", "value": "First aid"},
+            {"id": "C2", "name": "Fire warden", "value": "Fire warden"},
+        ],
+    },
 }
 
 
@@ -439,6 +519,28 @@ def _start_tables() -> dict[str, list[dict[str, Any]]]:
     return tables
 
 
+# Where each record type is read (a table read or a bulk read) and whether
+# HiBob answers a write with {"entryId": n}.
+RECORD_READS = {
+    "variable": "table",
+    "equities": "table",
+    "training": "table",
+    "bank-accounts": "table",
+    "entitlement": "bulk",
+    "deduction": "bulk",
+    "dependents": "bulk",
+    "right-to-work": "bulk",
+    "about__table_1": "custom",
+}
+RECORD_ENTRY_IDS = {
+    "variable",
+    "entitlement",
+    "deduction",
+    "dependents",
+    "right-to-work",
+}
+
+
 class FakePeople:
     """HiBob's people API, enough for the employee tools.
 
@@ -495,6 +597,29 @@ class FakePeople:
             mock_api.post(f"/people/{EMPLOYEE_ID}/{path}").mock(
                 side_effect=self._table_write(path)
             )
+        self.bulk_errors: dict[str, list[dict[str, Any]]] = {}
+        self.records_by_path: dict[str, list[dict[str, Any]]] = {
+            path: [] for path in RECORD_READS
+        }
+        for path, how in RECORD_READS.items():
+            if how == "bulk":
+                mock_api.get(f"/bulk/people/{path}").mock(
+                    side_effect=self._record_bulk_read(path)
+                )
+                mock_api.post(f"/people/{EMPLOYEE_ID}/{path}").mock(
+                    side_effect=self._record_write(path)
+                )
+            elif how == "custom":
+                base = f"/people/custom-tables/{EMPLOYEE_ID}/{path}"
+                mock_api.get(base).mock(side_effect=self._record_read(path))
+                mock_api.post(base).mock(side_effect=self._record_write(path))
+            else:
+                mock_api.get(f"/people/{EMPLOYEE_ID}/{path}").mock(
+                    side_effect=self._record_read(path)
+                )
+                mock_api.post(f"/people/{EMPLOYEE_ID}/{path}").mock(
+                    side_effect=self._record_write(path)
+                )
 
     def _record(self, identifier: str) -> dict[str, Any] | None:
         for record in self.records.values():
@@ -597,6 +722,71 @@ class FakePeople:
             )
             rows.append({**header, **stored})
             _renumber(rows)
+            return httpx.Response(200)
+
+        return handler
+
+    def add_record(self, path: str, **columns: Any) -> dict[str, Any]:
+        rows = self.records_by_path[path]
+        row = {"id": max((r["id"] for r in rows), default=100) + 1, **columns}
+        rows.append(row)
+        return row
+
+    def _record_read(self, path: str):
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.reads.append(path)
+            return httpx.Response(200, json={"values": self.records_by_path[path]})
+
+        return handler
+
+    def _record_bulk_read(self, path: str):
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.reads.append(path)
+            return httpx.Response(
+                200,
+                json={
+                    "results": [
+                        {
+                            "employeeId": EMPLOYEE_ID,
+                            "values": self.records_by_path[path],
+                        }
+                    ],
+                    "response_metadata": {"next_cursor": None},
+                    "errors": self.bulk_errors.get(path, []),
+                },
+            )
+
+        return handler
+
+    def _record_write(self, path: str):
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = jsonlib.loads(request.content)
+            row = dict(body["values"][0]) if "values" in body else dict(body)
+            self.writes.append(f"record:{path}")
+            self.posted.append((path, body))
+            status = self.row_status.get(path, 200)
+            if status != 200:
+                error = (
+                    {"error": f"Duplicate effective date for {path}."}
+                    if status == 400
+                    else {}
+                )
+                return httpx.Response(status, json=error)
+            rows = self.records_by_path[path]
+            duplicate = path == "deduction" and any(
+                r.get("effectiveDate") == row.get("effectiveDate")
+                and r.get("deduction") == row.get("deduction")
+                for r in rows
+            )
+            if duplicate:
+                return httpx.Response(
+                    400, json={"error": "Duplicate effective date for deduction."}
+                )
+            for column in self.drop_on_write.get(path, ()):
+                row[column] = None
+            stored = self.add_record(path, **row)
+            if path in RECORD_ENTRY_IDS:
+                return httpx.Response(200, json={"entryId": stored["id"]})
             return httpx.Response(200)
 
         return handler

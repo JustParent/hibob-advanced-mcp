@@ -145,3 +145,57 @@ async def test_get_employee_history_reads_tables_and_reports_per_table_errors(
     assert history["Certifications"]["rows"][0]["column_1"] == "x"
     assert "People's fields" in history["salary"]["error"]
     assert "Holidays" in history["Holidays"]["error"]
+
+
+async def test_list_fields_lists_the_record_types_and_custom_tables(
+    mock_api, mcp_server
+) -> None:
+    FakePeople(mock_api)
+    result = json.loads(await call_tool(mcp_server, "hibob_list_employee_fields", {}))
+    by_id = {entry["id"]: entry for entry in result["record_types"]}
+    assert by_id["variable"]["dated"] is True
+    assert {c["id"] for c in by_id["variable"]["columns"] if c["required"]} == {
+        "variableType",
+        "amount",
+        "paymentPeriod",
+    }
+    assert by_id["about__table_1"]["label"] == "Certifications"
+    assert by_id["about__table_1"]["columns"][0]["required"] is True
+
+
+async def test_list_fields_search_narrows_record_types(mock_api, mcp_server) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await call_tool(mcp_server, "hibob_list_employee_fields", {"search": "bonus"})
+    )
+    assert [entry["id"] for entry in result["record_types"]] == ["bank_account"]
+    result = json.loads(
+        await call_tool(mcp_server, "hibob_list_employee_fields", {"search": "certif"})
+    )
+    assert [entry["id"] for entry in result["record_types"]] == ["about__table_1"]
+
+
+async def test_history_shows_bulk_only_records_and_masks_bank_numbers(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    fake.add_record(
+        "entitlement", effectiveDate="2026-01-01", entitlement="Company Car"
+    )
+    fake.add_record("bank-accounts", bankName="Acme", accountNumber="12345678")
+    result = json.loads(
+        await call_tool(
+            mcp_server,
+            "hibob_get_employee",
+            {
+                "employee": EMPLOYEE_ID,
+                "fields": ["Job title"],
+                "history": ["entitlement", "bank accounts", "right to work"],
+            },
+        )
+    )
+    history = result["history"]
+    assert history["entitlement"]["rows"][0]["entitlement"] == "Company Car"
+    assert history["bank accounts"]["rows"][0]["accountNumber"] == "****5678"
+    assert history["bank accounts"]["rows"][0]["bankName"] == "Acme"
+    assert history["right to work"]["rows"] == []
