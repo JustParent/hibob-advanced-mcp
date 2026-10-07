@@ -87,3 +87,11 @@ records scrubbed. Write probe made on david@harriethq.com's own record; every va
 - "Manager" (`work.manager`, an employee reference) and "Reports to" (`work.reportsTo`) are the same value; a work row holds it once as `reportsTo`, and setting it through "Manager" was stored and read back. Both were wrongly refused as calculated before.
 - "Change type" (`work.workChangeType`, list `workChangeType`) is accepted on a work POST and read back ("Promotion"); a row written without it is tagged "Other".
 - Row left on david@harriethq.com: work 1000020300103 (2030-01-03: title CEO, manager Alan Tullin, change type Promotion).
+
+## Custom table "Pet ownership" (live, david@harriethq.com, 2026-10-07)
+- Metadata: `GET /people/custom-tables/metadata` lists it (`root__table_1791380280851`, category `root`) with columns Name (text) and Species (list). A list column's list is the named list `<table id>.<column id>` (dotted), fetched like any other; its item IDs are numeric strings.
+- POST: a flat body gets 400 "Missing required field: values"; `{"values": [row]}` works (200, no body), settling the docs conflict: custom tables need the wrapper, as bank accounts do.
+- PUT: a flat body works and patches (the untouched column kept its value); the wrapped form is accepted too.
+- Rows come back with `id`, `changedBy`, the columns at the top level and a `humanReadable` copy.
+- hibob_add_employee_record added rows by label ("Name", "Species": "dog" resolved to the list item), found the new row by diffing the table, treated a repeat call as already present, and answered a species that matched nothing exactly ("Fish") with the near candidate ("Goldfish").
+- GET of a custom table, like bank accounts, answers 400 HTML when sent with `Content-Type: application/json`; justparent's base client sends it on every request, so its custom-table reads failed until it got an opt-out.
