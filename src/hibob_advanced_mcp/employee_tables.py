@@ -1,4 +1,4 @@
-"""Rows of HiBob's effective-dated tables: work, employment and salary.
+"""Rows of HiBob's effective-dated tables: work, employment, salary and address.
 
 HiBob replaces a table row wholesale: a column left out of a write is stored
 empty. So a change to one column is written as a new row that copies the
@@ -29,8 +29,10 @@ TABLES = {
     "work": TableSpec("work", "work", "work", "reason"),
     "employment": TableSpec("employment", "employment", "employment", "reason"),
     "salary": TableSpec("salary", "salary", "salaries", None),
+    # HiBob keeps an address row's reason under change.reason, not at the top.
+    "address": TableSpec("address", "address", "address", "change.reason"),
 }
-TABLE_ORDER = ("work", "employment", "salary")
+TABLE_ORDER = ("work", "employment", "salary", "address")
 
 # Read-only or bookkeeping keys of a row, which a new row never carries.
 BOOKKEEPING_KEYS = frozenset(
@@ -201,7 +203,11 @@ def build_row(
             body.setdefault(column, value)
     body["effectiveDate"] = day
     if reason and table.reason_column:
-        body[table.reason_column] = reason
+        *parents, leaf = table.reason_column.split(".")
+        node = body
+        for part in parents:
+            node = node.setdefault(part, {})
+        node[leaf] = reason
     return body
 
 

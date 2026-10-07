@@ -21,6 +21,10 @@ NAMED_LIST_PATH = "/company/named-lists/{name}"
 EMPLOYEE_READ_PATH = "/people/{identifier}"
 TABLE_PATH = "/people/{employee_id}/{table}"
 CUSTOM_TABLE_PATH = "/people/custom-tables/{employee_id}/{table}"
+# HiBob's public API has no address endpoint. The table is reached on the web
+# app's own route, which lists and adds rows like the others (see
+# client.WEB_APP_PREFIX); callers just name the table.
+WEB_APP_TABLE_PATHS = {"address": "/api/table/address/address/{employee_id}"}
 # HiBob wants the string "true"; a boolean is answered with its login page.
 HUMAN_READABLE_QUERY = "?includeHumanReadable=true"
 # Tables readable one employee at a time, by the words a user would use.
@@ -38,6 +42,8 @@ HISTORY_TABLES = {
     "bank account": "bank-accounts",
     "bank accounts": "bank-accounts",
     "bank-accounts": "bank-accounts",
+    "address": "address",
+    "home address": "address",
 }
 
 
@@ -100,15 +106,22 @@ async def read_employee(
     return _one_employee(payload)
 
 
+def table_path(employee_id: str, table: str, *, custom: bool = False) -> str:
+    """Where an employee's rows of a table are listed, and new ones added."""
+    template = (
+        CUSTOM_TABLE_PATH if custom else WEB_APP_TABLE_PATHS.get(table, TABLE_PATH)
+    )
+    return template.format(
+        employee_id=quote(employee_id, safe=""), table=quote(table, safe="")
+    )
+
+
 async def read_table(
     client: HiBobClient, employee_id: str, table: str, *, custom: bool = False
 ) -> dict[str, Any]:
     """An employee's rows in one table, newest first, and any columns the
     service user may not see."""
-    template = CUSTOM_TABLE_PATH if custom else TABLE_PATH
-    path = template.format(
-        employee_id=quote(employee_id, safe=""), table=quote(table, safe="")
-    )
+    path = table_path(employee_id, table, custom=custom)
     payload = await client.get(path + HUMAN_READABLE_QUERY)
     rows: list[Any] = []
     restricted: dict[str, Any] = {}

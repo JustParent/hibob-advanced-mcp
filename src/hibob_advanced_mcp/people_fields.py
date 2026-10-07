@@ -23,8 +23,9 @@ ROOT_PREFIX = "root."
 EMAIL_FIELD = "root.email"
 START_DATE_FIELD = "work.startDate"
 MAX_CANDIDATES = 5
-# Columns of the effective-dated tables that a change can be written to: field
-# ID -> (table, column in the table's write body, how the value is sent).
+# Columns of the effective-dated tables (work, employment, salary, address) that
+# a change can be written to: field ID -> (table, column in the table's write
+# body, how the value is sent).
 DATED_COLUMNS = {
     "work.title": ("work", "title", "text"),
     "work.department": ("work", "department", "text"),
@@ -43,6 +44,12 @@ DATED_COLUMNS = {
     "payroll.salary.payment": ("salary", "base", "amount"),
     "payroll.salary.payPeriod": ("salary", "payPeriod", "text"),
     "payroll.salary.payFrequency": ("salary", "payFrequency", "text"),
+    "address.line1": ("address", "line1", "text"),
+    "address.line2": ("address", "line2", "text"),
+    "address.city": ("address", "city", "text"),
+    "address.postCode": ("address", "postCode", "text"),
+    "address.country": ("address", "country", "text"),
+    "address.usaState": ("address", "usaState", "text"),
 }
 # A custom column of one of those tables (an inferred ID pattern: no tenant
 # checked so far has one). It is written under customColumns.
@@ -76,6 +83,7 @@ NOT_WRITABLE_TYPES = {
 }
 NOT_WRITABLE_PREFIXES = (
     ("peopleAnalytics.", "HiBob calculates it"),
+    ("address.site", "it is the address of the employee's site, not their own"),
     # Answers 304 to a PUT, as a string or a number (checked live).
     ("employee.job", "it follows the employee's job profile"),
     (
@@ -110,6 +118,7 @@ CALCULATED_FIELDS = frozenset(
         "work.reportsToIdInCompany",
         "work.secondLevelManager",
         "address.activeEffectiveDate",
+        "address.fullAddress",
         "payroll.employment.activeEffectiveDate",
         "payroll.employment.fte",
         "payroll.employment.hoursInDayNotWorked",
@@ -278,8 +287,6 @@ def route_for(field: PeopleField) -> Route:
             )
         if field.id in UNSUPPORTED_DATED:
             return Route("not_writable", reason=UNSUPPORTED_DATED[field.id])
-        if field.id.startswith("address."):
-            return Route("not_writable", reason="HiBob's API cannot change an address")
         return Route(
             "not_writable", reason="HiBob's API has no way to change this dated field"
         )

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Awaitable, Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -25,6 +26,9 @@ REQUEST_TIMEOUT_SECONDS = 30.0
 MAX_READ_RETRIES = 2
 RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_DELAY_SECONDS = 10.0
+# Paths under /api/ are routes of HiBob's web app, which sit beside /v1 on the
+# API host rather than beneath it.
+WEB_APP_PREFIX = "/api/"
 
 SleepFn = Callable[[float], Awaitable[None]]
 
@@ -84,6 +88,14 @@ class HiBobClient:
         if self._client is not None and not self._client.is_closed:
             await self._client.aclose()
         self._client = None
+
+    def _target(self, path: str) -> str:
+        """What to send ``path`` to: the host root for a web app route, else
+        the path itself, which the client resolves under /v1."""
+        if not path.startswith(WEB_APP_PREFIX):
+            return path
+        base = urlsplit(self._settings.api_base)
+        return f"{base.scheme}://{base.netloc}{path}"
 
     @staticmethod
     def _retry_delay(response: httpx.Response, attempt: int) -> float:
@@ -147,7 +159,7 @@ class HiBobClient:
         attempt = 0
         while True:
             async with client.stream(
-                method, path, json=json, params=params
+                method, self._target(path), json=json, params=params
             ) as response:
                 retry = (
                     is_read

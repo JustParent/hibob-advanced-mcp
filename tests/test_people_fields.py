@@ -104,7 +104,11 @@ def test_nearest_fields_offers_labels_sharing_a_word() -> None:
         ("work.title", "dated", "work"),
         ("work.reportsTo", "dated", "work"),
         ("payroll.salary.payment", "dated", "salary"),
-        ("address.city", "not_writable", None),
+        ("address.city", "dated", "address"),
+        ("address.country", "dated", "address"),
+        ("address.fullAddress", "not_writable", None),
+        ("address.siteCity", "not_writable", None),
+        ("address.activeEffectiveDate", "not_writable", None),
         ("internal.status", "not_writable", None),
         ("root.displayName", "not_writable", None),
         ("root.id", "not_writable", None),
@@ -131,7 +135,7 @@ def test_describe_field_says_how_it_is_written() -> None:
         "list": "department",
         "table": "work",
     }
-    assert describe_field(BY_ID["address.city"])["reason"]
+    assert describe_field(BY_ID["address.fullAddress"])["reason"]
 
 
 def test_custom_tables_keep_columns_and_required_flags() -> None:

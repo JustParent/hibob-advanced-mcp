@@ -268,3 +268,19 @@ def test_to_wire(wire: str, given, expected) -> None:
 def test_to_wire_refuses_a_non_numeric_id() -> None:
     with pytest.raises(ValueError, match="numeric"):
         to_wire("int", "Madrid", "Work > Site")
+
+
+def test_an_address_reason_is_nested_under_change() -> None:
+    body = build_row(
+        {"city": "Leeds", "line1": "1 Old Street"},
+        {"city": "York"},
+        "2026-11-01",
+        TABLES["address"],
+        "Moved house",
+    )
+    assert body == {
+        "city": "York",
+        "line1": "1 Old Street",
+        "effectiveDate": "2026-11-01",
+        "change": {"reason": "Moved house"},
+    }

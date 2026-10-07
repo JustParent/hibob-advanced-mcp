@@ -97,7 +97,7 @@ async def test_an_ambiguous_employee_is_a_question(mock_api, mcp_server) -> None
 @pytest.mark.parametrize(
     ("changes", "expected"),
     [
-        ({"City": "Leeds"}, "cannot be changed"),
+        ({"Full address": "1 High Street, Leeds"}, "cannot be changed"),
         ({"Status": "Inactive"}, "cannot be changed"),
         ({"Mobile phone": None}, "null"),
         ({"Work > Start date": "01/11/2026"}, "YYYY-MM-DD"),

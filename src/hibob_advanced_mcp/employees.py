@@ -322,7 +322,7 @@ def register_employee_tools(
 
         Each field gives its id, label, category, type, list (the named list
         its values come from) and "write": "field" (changed directly),
-        "dated" with "table" (work, employment or salary: changed from an
+        "dated" with "table" (work, employment, salary or address: changed from an
         effective date), "email" or "start_date" (their own endpoints), or
         "not_writable" with a "reason". Custom tables come with their columns
         and which are required.
@@ -404,7 +404,7 @@ def register_employee_tools(
             list[str] | None,
             Field(
                 description=(
-                    "Tables whose rows to include: work, employment, salary, "
+                    "Tables whose rows to include: work, employment, salary, address, "
                     "lifecycle, variable pay, equity, training, bank accounts, "
                     "or a custom table's name or ID."
                 )

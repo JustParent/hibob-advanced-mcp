@@ -64,6 +64,33 @@ async def test_targets_sandbox_host_when_configured(
     assert route.called
 
 
+async def test_an_api_path_is_sent_to_the_host_root_not_under_v1(
+    client: HiBobClient, mock_api: respx.MockRouter
+) -> None:
+    """HiBob's web app routes (/api/...) live beside /v1, not beneath it."""
+    route = mock_api.get("https://api.hibob.com/api/table/address/address/1").mock(
+        return_value=httpx.Response(200, json={"values": []})
+    )
+
+    assert await client.get("/api/table/address/address/1") == {"values": []}
+    assert route.called
+
+
+async def test_an_api_path_follows_the_configured_host(
+    monkeypatch: pytest.MonkeyPatch, recorded_sleeps: list[float]
+) -> None:
+    monkeypatch.setenv(ENV_API_HOST, "api.sandbox.hibob.com")
+    client = HiBobClient(load_settings())
+
+    with respx.mock(base_url="https://api.sandbox.hibob.com/v1") as router:
+        route = router.get("https://api.sandbox.hibob.com/api/x/1").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        await client.get("/api/x/1")
+
+    assert route.called
+
+
 async def test_missing_credentials_raise_actionable_config_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

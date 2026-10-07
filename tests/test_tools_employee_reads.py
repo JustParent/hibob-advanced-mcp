@@ -18,7 +18,8 @@ async def test_list_fields_says_how_each_is_written(mock_api, mcp_server) -> Non
     assert by_id["work.title"]["table"] == "work"
     assert by_id["home.mobilePhone"]["write"] == "field"
     assert by_id["root.email"]["write"] == "email"
-    assert by_id["address.city"]["write"] == "not_writable"
+    assert by_id["address.city"]["write"] == "dated"
+    assert by_id["address.fullAddress"]["write"] == "not_writable"
     assert result["custom_tables"][0]["name"] == "Certifications"
 
 

@@ -6,7 +6,8 @@ to what HiBob stores, and asks back for anything it cannot pin down rather
 than guessing. Every check runs before the first write, and each write is
 sent once. Plain fields go in one PUT /people/{id}; the work email and start
 date have endpoints of their own. Columns of effective-dated tables (work,
-employment, salary) are written as new rows that copy the row before their date.
+employment, salary, address) are written as new rows that copy the row before
+their date.
 """
 
 from __future__ import annotations
@@ -43,7 +44,13 @@ from .employee_values import EMPLOYEE_TYPES, LIST_TYPES, NeedsInput, coerce_valu
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
 from .list_values import list_item_names, resolve_list_values
-from .people_api import named_list, people_fields, read_employee, read_table
+from .people_api import (
+    named_list,
+    people_fields,
+    read_employee,
+    read_table,
+    table_path,
+)
 from .people_fields import (
     PeopleField,
     Route,
@@ -58,7 +65,6 @@ from .references import NOTHING_WRITTEN
 PUT_PATH = "/people/{employee_id}"
 EMAIL_PATH = "/people/{employee_id}/email"
 START_DATE_PATH = "/employees/{employee_id}/start-date"
-ROW_PATH = "/people/{employee_id}/{table}"
 # A table with no earlier salary row needs these to start one. HiBob's
 # reference lists the first two as required; it also refuses a row without a
 # pay frequency ("Missing pay frequency", seen live).
@@ -67,6 +73,9 @@ FIRST_SALARY_COLUMNS = (
     ("payPeriod", "the pay period, for example Annual"),
     ("payFrequency", "the pay frequency, for example Monthly"),
 )
+# Tables a first row can start without an earlier one to copy: a salary or an
+# address is simply what the caller gives.
+STARTS_EMPTY = frozenset({"salary", "address"})
 # Email goes last: HiBob sends the employee a verification email.
 WRITE_ORDER = ("field", "start_date", "email")
 WRITE_NAMES = {"field": "fields", "start_date": "start date", "email": "work email"}
@@ -112,6 +121,11 @@ class Write:
     kind: str
     changes: list[Change]
     row: RowPlan | None = None
+
+
+def _a(noun: str) -> str:
+    """ "a work" or "an address"."""
+    return f"{'an' if noun[:1].lower() in 'aeiou' else 'a'} {noun}"
 
 
 def _dump(payload: Any) -> str:
@@ -441,17 +455,17 @@ async def _prepare_rows(
         base, same_day, later = split_rows(data["rows"], day, table)
         if same_day is not None:
             raise ValueError(
-                f"{who} already has a {table.label} row dated {day}. This tool only "
+                f"{who} already has {_a(table.label)} row dated {day}. This tool only "
                 f"adds rows, so choose a different effective date. {NOTHING_WRITTEN}"
             )
-        if base is None and key != "salary":
+        if base is None and key not in STARTS_EMPTY:
             raise ValueError(
                 f"{who} has no {table.label} row before {day}, so there is nothing "
                 f"to carry forward. {NOTHING_WRITTEN}"
             )
         labels = [c.field.qualified_label for c in group]
         asks = _fill_amounts(who, table, group, base)
-        if base is None:
+        if base is None and key == "salary":
             asks += _first_salary_question(
                 who, day, {str(c.route.column) for c in group}, labels
             )
@@ -504,8 +518,7 @@ async def _send(
     """Send one write; False when HiBob reports it changed nothing (304)."""
     path_id = quote(employee_id, safe="")
     if write.row is not None:
-        path = ROW_PATH.format(employee_id=path_id, table=write.row.table.path)
-        await api.post(path, write.row.body)
+        await api.post(table_path(employee_id, write.row.table.path), write.row.body)
         return True
     group = write.changes
     if write.kind == "field":
@@ -757,8 +770,8 @@ def register_update_tools(
             Field(
                 description=(
                     "YYYY-MM-DD. Needed for job title, department, site, manager, "
-                    "employment and salary changes, which HiBob keeps as dated "
-                    "rows; the tool asks for it if missing. Plain fields change "
+                    "employment, salary and home address changes, which HiBob keeps as "
+                    "dated rows; the tool asks for it if missing. Plain fields change "
                     "immediately and cannot be scheduled."
                 )
             ),
@@ -767,9 +780,9 @@ def register_update_tools(
             str | None,
             Field(
                 description=(
-                    "Why the change is made; recorded on new work and employment "
-                    "rows and with a start-date change (HiBob's salary table has "
-                    "no reason column)."
+                    "Why the change is made; recorded on new work, employment and "
+                    "address rows and with a start-date change (HiBob's salary "
+                    "table has no reason column)."
                 )
             ),
         ] = None,
@@ -802,8 +815,9 @@ def register_update_tools(
             "unconfirmed_note"?, "failed"?, "not_sent"?}; or "needs_input" as
             above; or an error beginning "Error:" (nothing written).
 
-        Job title, department, site, manager, employment terms and salary
-        are HiBob dated rows, and HiBob replaces a row wholesale, so each is
+        Job title, department, site, manager, employment terms, salary and
+        home address (line 1 and 2, city, post code, state, country) are HiBob
+        dated rows, and HiBob replaces a row wholesale, so each is
         written as a new row dated effective_date that copies the row before
         that date with the change laid over it. "Manager" and "Reports to"
         are the same column. Give "Change type" (Promotion, Lateral Move,
@@ -811,13 +825,14 @@ def register_update_tools(
         tool asks for a missing effective_date and never assumes today. It
         refuses, writing nothing, if the table cannot be read in full, a row
         already exists on that date (it never edits a row), or there is
-        nothing earlier to copy (except a first salary row, which needs the
-        amount with its currency, the pay period and the pay frequency). A
-        later row that still holds a different value comes back as a
-        question; answer it with allow_later_rows=true.
+        nothing earlier to copy (except a first address row, which is just what
+        you give, and a first salary row, which needs the amount with its
+        currency, the pay period and the pay frequency). A later row that
+        still holds a different value comes back as a question; answer it
+        with allow_later_rows=true.
 
         Writes go in this order, each sent once: new rows (work, employment,
-        salary), plain fields (one PUT), start date, then work email (HiBob
+        salary, address), plain fields (one PUT), start date, then work email (HiBob
         emails the employee to verify it). If one fails the rest are not sent
         ("partial"); nothing is rolled back. Each change is read back; HiBob
         silently skips fields the service user may not edit and its reads

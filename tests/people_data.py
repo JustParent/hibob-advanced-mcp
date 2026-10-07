@@ -74,7 +74,40 @@ FIELDS = [
         list_id="status",
         historical=True,
     ),
+    _field("address.line1", "Address line 1", "Address", "text", historical=True),
+    _field("address.line2", "Address line 2", "Address", "text", historical=True),
     _field("address.city", "City", "Address", "text", historical=True),
+    _field(
+        "address.postCode",
+        "Zip/Post/Postal code",
+        "Address",
+        "text",
+        historical=True,
+    ),
+    _field(
+        "address.country",
+        "Country",
+        "Address",
+        "list",
+        list_id="countries",
+        historical=True,
+    ),
+    _field(
+        "address.usaState",
+        "State/Province/Region",
+        "Address",
+        "text",
+        historical=True,
+    ),
+    _field("address.fullAddress", "Full address", "Address", "text"),
+    _field("address.siteCity", "Site city", "Address", "text"),
+    _field(
+        "address.activeEffectiveDate",
+        "Address effective date",
+        "Address",
+        "date",
+        historical=True,
+    ),
     _field(
         "payroll.salary.payment", "Base salary", "Payroll", "currency", historical=True
     ),
@@ -212,6 +245,7 @@ CUSTOM_TABLES = {
     ]
 }
 
+ADDRESS_ROUTE = "/api/table/address/address/{id}"
 EMPLOYEE_ID = "3332883884017713238"
 MANAGER_ID = "3332883884017713999"
 
@@ -444,6 +478,22 @@ LISTS: dict[str, dict[str, Any]] = {
             {"id": "Other", "name": "Other", "value": "Other"},
         ],
     },
+    "countries": {
+        "name": "countries",
+        "values": [
+            {
+                "id": "United Kingdom",
+                "name": "United Kingdom",
+                "value": "United Kingdom",
+            },
+            {
+                "id": "United States",
+                "name": "United States",
+                "value": "United States",
+            },
+            {"id": "France", "name": "France", "value": "France"},
+        ],
+    },
     "certs": {
         "name": "certs",
         "values": [
@@ -502,6 +552,7 @@ TABLE_COLUMNS = {
         "weeklyHours",
     ),
     "salaries": ("base", "payPeriod", "payFrequency"),
+    "address": ("line1", "line2", "city", "postCode", "country", "usaState"),
 }
 
 
@@ -648,6 +699,15 @@ class FakePeople:
             mock_api.post(f"/people/{EMPLOYEE_ID}/{path}").mock(
                 side_effect=self._table_write(path)
             )
+        # Address is not in HiBob's public API; its table answers on the web
+        # app's own route, at the host root rather than under /v1, and reports
+        # no restricted columns.
+        self.tables["address"] = []
+        address_url = f"https://api.hibob.com{ADDRESS_ROUTE.format(id=EMPLOYEE_ID)}"
+        mock_api.get(address_url).mock(
+            side_effect=self._table_read("address", restricted=False)
+        )
+        mock_api.post(address_url).mock(side_effect=self._table_write("address"))
         self.bulk_errors: dict[str, list[dict[str, Any]]] = {}
         self.records_by_path: dict[str, list[dict[str, Any]]] = {
             path: [] for path in RECORD_READS
@@ -725,16 +785,13 @@ class FakePeople:
         _renumber(rows)
         return row
 
-    def _table_read(self, path: str):
+    def _table_read(self, path: str, *, restricted: bool = True):
         def handler(request: httpx.Request) -> httpx.Response:
             self.reads.append(path)
-            return httpx.Response(
-                200,
-                json={
-                    "values": self.tables[path],
-                    "restricted_columns": self.restricted.get(path, {}),
-                },
-            )
+            body: dict[str, Any] = {"values": self.tables[path]}
+            if restricted:
+                body["restricted_columns"] = self.restricted.get(path, {})
+            return httpx.Response(200, json=body)
 
         return handler
 
@@ -769,7 +826,7 @@ class FakePeople:
             header = row_header(
                 max((r["id"] for r in rows), default=0) + 1,
                 body["effectiveDate"],
-                body.get("reason"),
+                body.get("reason") or (body.get("change") or {}).get("reason"),
             )
             rows.append({**header, **stored})
             _renumber(rows)
