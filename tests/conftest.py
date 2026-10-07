@@ -70,8 +70,11 @@ def client(recorded_sleeps: list[float]) -> HiBobClient:
 
 
 @pytest.fixture
-def server_factory(client: HiBobClient):
+def server_factory(client: HiBobClient, recorded_sleeps: list[float]):
     """Build a server whose tools talk to the test client."""
+
+    async def fake_sleep(delay: float) -> None:
+        recorded_sleeps.append(delay)
 
     def build(
         read_only: bool = False, list_cache: NamedListCache | None = None
@@ -89,6 +92,7 @@ def server_factory(client: HiBobClient):
             read_only=read_only,
             client_factory=lambda: client,
             list_cache=list_cache,
+            sleep=fake_sleep,
         )
         register_reports_tools(mcp, client_factory=lambda: client)
         return mcp

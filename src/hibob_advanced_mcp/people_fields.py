@@ -38,6 +38,8 @@ NOT_WRITABLE_TYPES = {
 }
 NOT_WRITABLE_PREFIXES = (
     ("peopleAnalytics.", "HiBob calculates it"),
+    # Answers 304 to a PUT, as a string or a number (checked live).
+    ("employee.job", "it follows the employee's job profile"),
     (
         "internal.",
         "HiBob manages it; lifecycle changes have their own tools, such as "

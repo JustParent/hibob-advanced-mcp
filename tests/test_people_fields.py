@@ -194,5 +194,9 @@ def test_real_metadata_fixture() -> None:
     assert route_for(fields["work.tenureDuration"]).kind == "not_writable"
     assert route_for(fields["peopleAnalytics.ageRiskIndicator"]).kind == "not_writable"
     assert route_for(fields["internal.status"]).kind == "not_writable"
+    # Live: PUT answers 304 to these whatever the value's type; they follow
+    # the job profile.
+    for job_field in ("employee.jobRoleId", "employee.jobFamilyId"):
+        assert route_for(fields[job_field]).kind == "not_writable"
     assert [f.id for f in find_fields(real, "Site")] == ["work.siteId"]
     assert all(f.label for f in real)

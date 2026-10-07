@@ -8,6 +8,7 @@ item IDs and are resolved here from the names a user would give.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable
 from datetime import date
@@ -26,6 +27,7 @@ from .employee_directory import (
     describe_candidates,
     find_employee,
 )
+from .employee_updates import SleepFn, register_update_tools
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
 from .list_values import named_list_items, resolve_list_values
@@ -230,6 +232,7 @@ def register_employee_tools(
     read_only: bool = False,
     client_factory: Callable[[], HiBobClient] = get_client,
     list_cache: NamedListCache | None = None,
+    sleep: SleepFn | None = None,
 ) -> None:
     """Register the employee tools; the write tools are omitted when ``read_only``."""
     cache = list_cache if list_cache is not None else NamedListCache()
@@ -499,3 +502,7 @@ def register_employee_tools(
             )
         except Exception as exc:
             return format_exception(exc)
+
+    register_update_tools(
+        mcp, client_factory=client_factory, cache=cache, sleep=sleep or asyncio.sleep
+    )
