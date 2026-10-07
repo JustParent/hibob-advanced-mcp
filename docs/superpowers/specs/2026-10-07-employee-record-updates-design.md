@@ -298,6 +298,19 @@ From bulk reads of 119 employees' rows and a restoring write probe:
 - List IDs are integers for `site` and `calendar`, strings elsewhere; list
   names are case-sensitive.
 
+Verified live with writes (dated 2030, on one employee):
+
+- A work row sent with `siteId` alone (no `site`), nulls omitted, is accepted
+  and read back intact; a later row copies from the row before its date.
+- An employment row copying every non-null column, derived ones included, is
+  accepted and read back intact.
+- HiBob refuses a salary row without a pay frequency ("Missing pay
+  frequency") although its reference lists only the amount and pay period as
+  required, so a first salary row needs all three.
+- With no earlier salary row HiBob counts the first row as current whatever
+  its date; the tool warns when that row is future-dated.
+- Custom columns could not be checked: no table in the tenant has any.
+
 ### A record
 
 Build the row from the resolved values only; nothing is copied. A duplicate

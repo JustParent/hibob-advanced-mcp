@@ -66,6 +66,7 @@
 In `tests/people_data.py`, add these entries to `FIELDS` directly after the `payroll.variable.Bonus.amount` entry:
 
 ```python
+(
     _field(
         "payroll.employment.contract",
         "Contract",
@@ -74,6 +75,8 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         list_id="employmentstatus",
         historical=True,
     ),
+)
+(
     _field(
         "payroll.employment.type",
         "Employment type",
@@ -82,6 +85,8 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         list_id="payrollEmploymentType",
         historical=True,
     ),
+)
+(
     _field(
         "payroll.employment.calendarId",
         "Holiday calendar ID",
@@ -90,7 +95,9 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         list_id="calendar",
         historical=True,
     ),
-    _field("payroll.employment.fte", "FTE", "Employment", "number", historical=True),
+)
+(_field("payroll.employment.fte", "FTE", "Employment", "number", historical=True),)
+(
     _field(
         "payroll.employment.personalWorkingPatternType",
         "Personal working pattern type",
@@ -99,6 +106,8 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         list_id="personalWorkingPatternTypes",
         historical=True,
     ),
+)
+(
     _field(
         "payroll.employment.workingPattern",
         "Working pattern",
@@ -106,6 +115,8 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         "working_pattern",
         historical=True,
     ),
+)
+(
     _field(
         "payroll.employment.standardWorkingPattern.workingPatternId",
         "Full time working pattern",
@@ -113,6 +124,8 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         "list_id",
         list_id="workingPattern_entity_list",
     ),
+)
+(
     _field(
         "payroll.salary.payPeriod",
         "Pay period",
@@ -121,6 +134,8 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         list_id="payPeriod",
         historical=True,
     ),
+)
+(
     _field(
         "payroll.salary.payFrequency",
         "Pay frequency",
@@ -129,7 +144,9 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         list_id="payFrequency",
         historical=True,
     ),
-    _field("payroll.salary.yearlyPayment", "Yearly payment", "Payroll", "currency"),
+)
+(_field("payroll.salary.yearlyPayment", "Yearly payment", "Payroll", "currency"),)
+(
     _field(
         "work.customColumns.column_55",
         "Cost centre",
@@ -137,6 +154,7 @@ In `tests/people_data.py`, add these entries to `FIELDS` directly after the `pay
         "text",
         historical=True,
     ),
+)
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -620,12 +638,12 @@ def test_to_wire_refuses_a_non_numeric_id() -> None:
 Append these cases to the `test_same_value` parametrization in `tests/test_employee_values.py` (inside the existing list of `(sent, read, same)` tuples):
 
 ```python
-        ({"id": "5"}, {"id": "5", "displayName": "Sam"}, True),
-        ({"id": "5"}, {"id": "9", "displayName": "Sam"}, False),
-        ({"id": "5"}, None, False),
-        ({"a": 1, "b": {"c": 2}}, {"a": 1.0, "b": {"c": 2}, "x": 9}, True),
-        ({"a": 1, "b": {"c": 2}}, {"a": 1, "b": {"c": 3}}, False),
-        ({"value": 5, "currency": "GBP"}, {"value": 5, "currency": "gbp"}, True),
+(({"id": "5"}, {"id": "5", "displayName": "Sam"}, True),)
+(({"id": "5"}, {"id": "9", "displayName": "Sam"}, False),)
+(({"id": "5"}, None, False),)
+(({"a": 1, "b": {"c": 2}}, {"a": 1.0, "b": {"c": 2}, "x": 9}, True),)
+(({"a": 1, "b": {"c": 2}}, {"a": 1, "b": {"c": 3}}, False),)
+(({"value": 5, "currency": "GBP"}, {"value": 5, "currency": "gbp"}, True),)
 ```
 
 - [ ] **Step 2: Run them to see them fail**
@@ -1009,7 +1027,7 @@ In `tests/people_data.py`, add to the `LISTS` dict:
 Also add a person with a unique name to `DIRECTORY["employees"]`:
 
 ```python
-        {"id": "79", "displayName": "Priya Patel", "email": "priya@x.com"},
+({"id": "79", "displayName": "Priya Patel", "email": "priya@x.com"},)
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -1023,7 +1041,9 @@ def test_a_bare_amount_is_accepted_when_the_row_supplies_the_currency() -> None:
         "value": 60000,
         "currency": None,
     }
-    assert coerce_value(field, {"value": "5", "currency": "gbp"}, bare_amount_ok=True) == {
+    assert coerce_value(
+        field, {"value": "5", "currency": "gbp"}, bare_amount_ok=True
+    ) == {
         "value": 5,
         "currency": "GBP",
     }
@@ -1142,13 +1162,12 @@ In `src/hibob_advanced_mcp/employee_updates.py`:
 - In `_plan`, directly after the `if len(matches) != 1:` block (after its `continue`) and before `target = matches[0]`'s route lookup, so the sequence reads `target = matches[0]`, then:
 
 ```python
-        if target.id in seen:
-            plan.problems.append(
-                f"{target.qualified_label} is given twice, as {seen[target.id]!r} "
-                f"and {key!r}."
-            )
-            continue
-        seen[target.id] = key
+if target.id in seen:
+    plan.problems.append(
+        f"{target.qualified_label} is given twice, as {seen[target.id]!r} and {key!r}."
+    )
+    continue
+seen[target.id] = key
 ```
 
 - In `_plan`, delete the whole `if route.kind == "dated":` block (the one that appends "adding rows to it is not supported yet").
@@ -1186,24 +1205,23 @@ def _date_question(plan: Plan, dated: list[Change]) -> dict[str, Any]:
 - In `hibob_update_employee`, replace the block from `if plan.questions or plan.employee is None:` to `return _dump(await _apply(api, plan, reason, sleep))` with:
 
 ```python
-            dated = [c for c in plan.changes if c.route.kind == "dated"]
-            if dated and day is None:
-                plan.questions.append(_date_question(plan, dated))
-            if plan.questions or plan.employee is None:
-                return _dump(
-                    {
-                        "status": "needs_input",
-                        "employee": plan.employee,
-                        "questions": plan.questions,
-                    }
-                )
-            _check_schedule(day, [c for c in plan.changes if c.route.kind != "dated"])
-            if dated:
-                raise ValueError(
-                    "Adding rows to HiBob's dated tables is not supported yet. "
-                    f"{NOTHING_WRITTEN}"
-                )
-            return _dump(await _apply(api, plan, reason, sleep))
+dated = [c for c in plan.changes if c.route.kind == "dated"]
+if dated and day is None:
+    plan.questions.append(_date_question(plan, dated))
+if plan.questions or plan.employee is None:
+    return _dump(
+        {
+            "status": "needs_input",
+            "employee": plan.employee,
+            "questions": plan.questions,
+        }
+    )
+_check_schedule(day, [c for c in plan.changes if c.route.kind != "dated"])
+if dated:
+    raise ValueError(
+        f"Adding rows to HiBob's dated tables is not supported yet. {NOTHING_WRITTEN}"
+    )
+return _dump(await _apply(api, plan, reason, sleep))
 ```
 
 - [ ] **Step 5: Run the tests**
@@ -1368,67 +1386,69 @@ In `FakePeople.__init__`, after the `self.email = ...` statement, add:
 Add these methods to `FakePeople`:
 
 ```python
-    def add_row(self, path: str, day: str, **columns: Any) -> dict[str, Any]:
-        rows = self.tables[path]
-        row = {
-            **row_header(max((r["id"] for r in rows), default=0) + 1, day),
-            **{column: None for column in TABLE_COLUMNS[path]},
-            "customColumns": {},
-            **columns,
-        }
-        rows.append(row)
-        _renumber(rows)
-        return row
+def add_row(self, path: str, day: str, **columns: Any) -> dict[str, Any]:
+    rows = self.tables[path]
+    row = {
+        **row_header(max((r["id"] for r in rows), default=0) + 1, day),
+        **{column: None for column in TABLE_COLUMNS[path]},
+        "customColumns": {},
+        **columns,
+    }
+    rows.append(row)
+    _renumber(rows)
+    return row
 
-    def _table_read(self, path: str):
-        def handler(request: httpx.Request) -> httpx.Response:
-            self.reads.append(path)
+
+def _table_read(self, path: str):
+    def handler(request: httpx.Request) -> httpx.Response:
+        self.reads.append(path)
+        return httpx.Response(
+            200,
+            json={
+                "values": self.tables[path],
+                "restricted_columns": self.restricted.get(path, {}),
+            },
+        )
+
+    return handler
+
+
+def _table_write(self, path: str):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = jsonlib.loads(request.content)
+        self.writes.append(f"row:{path}")
+        self.posted.append((path, body))
+        status = self.row_status.get(path, 200)
+        if status != 200:
             return httpx.Response(
-                200,
+                status,
                 json={
-                    "values": self.tables[path],
-                    "restricted_columns": self.restricted.get(path, {}),
+                    "key": "exception.history.duplicated.bulk",
+                    "error": "Duplicate effective date for work, please "
+                    "update the effective date.",
                 },
             )
+        columns = TABLE_COLUMNS[path]
+        stored = {column: None for column in columns}
+        stored.update({k: v for k, v in body.items() if k in columns})
+        custom = dict(body.get("customColumns") or {})
+        custom.update({k: v for k, v in body.items() if k.startswith("column_")})
+        stored["customColumns"] = custom
+        if stored.get("siteId") is not None and not stored.get("site"):
+            stored["site"] = SITES.get(stored["siteId"])
+        for column in self.drop_on_write.get(path, ()):
+            stored[column] = None
+        rows = self.tables[path]
+        header = row_header(
+            max((r["id"] for r in rows), default=0) + 1,
+            body["effectiveDate"],
+            body.get("reason"),
+        )
+        rows.append({**header, **stored})
+        _renumber(rows)
+        return httpx.Response(200)
 
-        return handler
-
-    def _table_write(self, path: str):
-        def handler(request: httpx.Request) -> httpx.Response:
-            body = jsonlib.loads(request.content)
-            self.writes.append(f"row:{path}")
-            self.posted.append((path, body))
-            status = self.row_status.get(path, 200)
-            if status != 200:
-                return httpx.Response(
-                    status,
-                    json={
-                        "key": "exception.history.duplicated.bulk",
-                        "error": "Duplicate effective date for work, please "
-                        "update the effective date.",
-                    },
-                )
-            columns = TABLE_COLUMNS[path]
-            stored = {column: None for column in columns}
-            stored.update({k: v for k, v in body.items() if k in columns})
-            custom = dict(body.get("customColumns") or {})
-            custom.update({k: v for k, v in body.items() if k.startswith("column_")})
-            stored["customColumns"] = custom
-            if stored.get("siteId") is not None and not stored.get("site"):
-                stored["site"] = SITES.get(stored["siteId"])
-            for column in self.drop_on_write.get(path, ()):
-                stored[column] = None
-            rows = self.tables[path]
-            header = row_header(
-                max((r["id"] for r in rows), default=0) + 1,
-                body["effectiveDate"],
-                body.get("reason"),
-            )
-            rows.append({**header, **stored})
-            _renumber(rows)
-            return httpx.Response(200)
-
-        return handler
+    return handler
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -2126,7 +2146,9 @@ def _later_question(
     who: str, table: TableSpec, conflicts: list[dict[str, Any]], labels: list[str]
 ) -> dict[str, Any]:
     first = conflicts[0]
-    held = ", ".join(f"{column} {value!r}" for column, value in first["columns"].items())
+    held = ", ".join(
+        f"{column} {value!r}" for column, value in first["columns"].items()
+    )
     return {
         "argument": "allow_later_rows",
         "question": (
@@ -2369,9 +2391,7 @@ async def _apply(
         "applied": [],
         "warnings": list(warnings),
     }
-    writes = [
-        Write(f"{row.table.label} row", "row", row.changes, row) for row in rows
-    ]
+    writes = [Write(f"{row.table.label} row", "row", row.changes, row) for row in rows]
     for kind in WRITE_ORDER:
         group = [c for c in others if c.route.kind == kind]
         if group:
@@ -2433,8 +2453,6 @@ async def _apply(
     if not result["warnings"]:
         del result["warnings"]
     return result
-
-
 ```
 
 (The block ends with a blank line so `def register_update_tools(` follows after two blank lines. `to_wire` was imported in Task 3 and is still used by `_plan`; `held_value`, `row_value`, `later_conflicts` etc. are used above.)
@@ -2442,16 +2460,16 @@ async def _apply(
 In `hibob_update_employee`, add the parameter after `reason`:
 
 ```python
-        allow_later_rows: Annotated[
-            bool,
-            Field(
-                description=(
-                    "True to go ahead when a later row in a dated table still holds "
-                    "a different value in a column being changed, which means this "
-                    "change only lasts until that row's date. Ask the user first."
-                )
-            ),
-        ] = False,
+allow_later_rows: Annotated[
+    bool,
+    Field(
+        description=(
+            "True to go ahead when a later row in a dated table still holds "
+            "a different value in a column being changed, which means this "
+            "change only lasts until that row's date. Ask the user first."
+        )
+    ),
+] = (False,)
 ```
 
 Update the other parameter descriptions: `effective_date` → `"YYYY-MM-DD. Needed for job title, department, site, manager, employment and salary changes, which HiBob keeps as dated rows; the tool asks for it if missing. Plain fields change immediately and cannot be scheduled."`; `reason` → `"Why the change is made; recorded on new work and employment rows and with a start-date change (HiBob's salary table has no reason column)."`
@@ -2610,7 +2628,11 @@ env = {
 }
 done = subprocess.run(
     ["python", "-s", "/tmp/hamcp/child.py"],
-    env=env, cwd="/tmp", capture_output=True, text=True, timeout=600,
+    env=env,
+    cwd="/tmp",
+    capture_output=True,
+    text=True,
+    timeout=600,
 )
 print(done.stdout)
 print("CHILD_ERR:" + done.stderr[-3000:].replace("\n", "\\n"))

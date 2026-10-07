@@ -93,7 +93,7 @@ async def test_an_employment_change_keeps_the_derived_columns(
         await _update(
             mcp_server,
             employee=EMPLOYEE_ID,
-            changes={"Contract": "part time"},
+            changes={"Employment contract": "part time"},
             effective_date="2026-11-01",
         )
     )
@@ -115,7 +115,7 @@ async def test_an_employment_change_keeps_the_derived_columns(
     assert "unconfirmed" not in result
 
 
-async def test_a_first_salary_row_needs_the_amount_and_the_pay_period(
+async def test_a_first_salary_row_carries_the_amount_period_and_frequency(
     mock_api, mcp_server
 ) -> None:
     fake = FakePeople(mock_api)
@@ -125,7 +125,8 @@ async def test_a_first_salary_row_needs_the_amount_and_the_pay_period(
             employee=EMPLOYEE_ID,
             changes={
                 "Base salary": {"value": 50000, "currency": "gbp"},
-                "Pay period": "annual",
+                "Salary pay period": "annual",
+                "Salary pay frequency": "monthly",
             },
             effective_date="2026-11-01",
         )
@@ -137,6 +138,7 @@ async def test_a_first_salary_row_needs_the_amount_and_the_pay_period(
                 "effectiveDate": "2026-11-01",
                 "base": {"value": 50000, "currency": "GBP"},
                 "payPeriod": "Annual",
+                "payFrequency": "Monthly",
             },
         )
     ]
@@ -184,7 +186,11 @@ async def test_a_bare_salary_with_no_earlier_row_asks_for_the_currency(
         await _update(
             mcp_server,
             employee=EMPLOYEE_ID,
-            changes={"Base salary": 50000, "Pay period": "Annual"},
+            changes={
+                "Base salary": 50000,
+                "Salary pay period": "Annual",
+                "Salary pay frequency": "Monthly",
+            },
             effective_date="2026-11-01",
         )
     )
@@ -194,7 +200,7 @@ async def test_a_bare_salary_with_no_earlier_row_asks_for_the_currency(
     assert fake.writes == []
 
 
-async def test_a_first_salary_row_without_a_pay_period_asks_for_it(
+async def test_a_first_salary_row_without_a_period_or_frequency_asks_for_them(
     mock_api, mcp_server
 ) -> None:
     fake = FakePeople(mock_api)
@@ -207,7 +213,9 @@ async def test_a_first_salary_row_without_a_pay_period_asks_for_it(
         )
     )
     assert result["status"] == "needs_input"
-    assert "pay period" in result["questions"][0]["question"]
+    question = result["questions"][0]["question"]
+    assert "pay period" in question
+    assert "pay frequency" in question
     assert fake.writes == []
 
 
@@ -354,7 +362,8 @@ async def test_a_reason_is_recorded_on_work_rows_but_not_on_salary_rows(
             changes={
                 "Job title": "Head of Data",
                 "Base salary": {"value": 50000, "currency": "GBP"},
-                "Pay period": "Annual",
+                "Salary pay period": "Annual",
+                "Salary pay frequency": "Monthly",
             },
             effective_date="2026-11-01",
             reason="Promotion",
@@ -450,7 +459,7 @@ async def test_a_failing_second_table_is_partial(mock_api, mcp_server) -> None:
         await _update(
             mcp_server,
             employee=EMPLOYEE_ID,
-            changes={"Job title": "Head of Data", "Contract": "Part time"},
+            changes={"Job title": "Head of Data", "Employment contract": "Part time"},
             effective_date="2026-11-01",
         )
     )
@@ -502,3 +511,25 @@ async def test_a_column_hibob_blanks_is_reported_unconfirmed(
     ]
     assert "hibob_get_employee" in result["unconfirmed_note"]
     assert recorded_sleeps == [1.0, 3.0, 6.0]
+
+
+async def test_a_future_dated_first_salary_row_warns_that_hibob_counts_it_as_current(
+    mock_api, mcp_server
+) -> None:
+    """Checked live: with no earlier salary row, HiBob treats the first row as
+    current whatever its date."""
+    FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            changes={
+                "Base salary": {"value": 50000, "currency": "GBP"},
+                "Salary pay period": "Annual",
+                "Salary pay frequency": "Monthly",
+            },
+            effective_date="2099-01-01",
+        )
+    )
+    assert result["status"] == "updated"
+    assert any("counts a first salary row as current" in w for w in result["warnings"])

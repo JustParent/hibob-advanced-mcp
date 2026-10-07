@@ -58,10 +58,13 @@ PUT_PATH = "/people/{employee_id}"
 EMAIL_PATH = "/people/{employee_id}/email"
 START_DATE_PATH = "/employees/{employee_id}/start-date"
 ROW_PATH = "/people/{employee_id}/{table}"
-# A table with no earlier salary row needs these to start one.
+# A table with no earlier salary row needs these to start one. HiBob's
+# reference lists the first two as required; it also refuses a row without a
+# pay frequency ("Missing pay frequency", seen live).
 FIRST_SALARY_COLUMNS = (
     ("base", "the amount with its currency"),
     ("payPeriod", "the pay period, for example Annual"),
+    ("payFrequency", "the pay frequency, for example Monthly"),
 )
 # Email goes last: HiBob sends the employee a verification email.
 WRITE_ORDER = ("field", "start_date", "email")
@@ -332,12 +335,17 @@ def _first_salary_question(
     missing = [what for column, what in FIRST_SALARY_COLUMNS if column not in columns]
     if not missing:
         return []
+    needs = (
+        f"{', '.join(missing[:-1])} and {missing[-1]}"
+        if len(missing) > 1
+        else missing[0]
+    )
     return [
         {
             "argument": "changes",
             "question": (
-                f"{who} has no salary row before {day}, so a new one needs "
-                f"{' and '.join(missing)}. Add them to changes."
+                f"{who} has no salary row before {day}, so a new one needs {needs}. "
+                "Add them to changes."
             ),
             "applies_to": labels,
         }
@@ -423,6 +431,12 @@ async def _prepare_rows(
         if conflicts and not allow_later_rows:
             questions.append(_later_question(who, table, conflicts, labels))
             continue
+        if base is None and day > date.today().isoformat():
+            warnings.append(
+                f"HiBob counts a first {table.label} row as current whatever its "
+                f"date, so {who}'s {table.label} already shows these values "
+                f"before {day}."
+            )
         if reason and table.reason_column is None:
             warnings.append(
                 f"HiBob's {table.label} table has no reason column, so the reason "

@@ -85,7 +85,7 @@ FIELDS = [
     ),
     _field(
         "payroll.employment.contract",
-        "Contract",
+        "Employment contract",
         "Employment",
         "list",
         list_id="employmentstatus",
@@ -132,7 +132,7 @@ FIELDS = [
     ),
     _field(
         "payroll.salary.payPeriod",
-        "Pay period",
+        "Salary pay period",
         "Payroll",
         "list",
         list_id="payPeriod",
@@ -140,7 +140,7 @@ FIELDS = [
     ),
     _field(
         "payroll.salary.payFrequency",
-        "Pay frequency",
+        "Salary pay frequency",
         "Payroll",
         "list",
         list_id="payFrequency",
@@ -577,6 +577,8 @@ class FakePeople:
                         "update the effective date.",
                     },
                 )
+            if path == "salaries" and not body.get("payFrequency"):
+                return httpx.Response(400, json={"error": "Missing pay frequency"})
             columns = TABLE_COLUMNS[path]
             stored: dict[str, Any] = {column: None for column in columns}
             stored.update({k: v for k, v in body.items() if k in columns})

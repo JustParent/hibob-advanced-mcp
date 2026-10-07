@@ -65,3 +65,12 @@ records scrubbed. Write probe made on david@harriethq.com's own record; every va
 - A people read asking for an employee.* field returns an "employee" category object beside the
   record's fields: it is not a wrapper.
 - Not exercised: PUT /people/{id}/email (it sends a verification email and changes the login).
+
+## Dated rows (live, david@harriethq.com, 2026-10-07; rows dated 2030, none deleted)
+- POST /people/{id}/work with `siteId` alone (no `site`), nulls omitted and `reason` accepted: 200; the new row was read back with every column as sent. A second row copied department, manager and site from the first row (base chosen by date, not the current row).
+- POST /people/{id}/employment with every non-null column copied, including the derived `fte`, `weeklyHours`, `hoursInDayNotWorked`, `actualWorkingPattern` and `siteWorkingPattern`: 200, nothing differed on read-back.
+- POST /people/{id}/salaries without `payFrequency`: 400 "Missing pay frequency" (the reference lists only `base` and `payPeriod` as required). With all three: 200. The salary table has no reason column.
+- With no earlier salary row, HiBob treated the first salary row as `isCurrent: true` although it was dated 2030, so the employee's current `payroll.salary.payment` changed at once. The work and employment rows dated 2030 stayed non-current.
+- Real labels: "Employment contract", "Salary pay period", "Salary pay frequency", "Base salary", "Personal mobile".
+- No custom columns exist on any table in this tenant, so the nested-and-top-level custom column shapes are still unverified.
+- Rows left on david@harriethq.com: work 1000020300101 (2030-01-01) and 1000020300102 (2030-01-02); employment 1000020300101 (2030-01-01); salary 1000020300101 (2030-01-01) and 1000020300102 (2030-01-02). Salary now reads 100000 USD Annual / Monthly.
