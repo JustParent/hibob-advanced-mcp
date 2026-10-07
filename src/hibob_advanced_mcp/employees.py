@@ -54,6 +54,13 @@ from .people_fields import (
     nearest_fields,
     read_field,
 )
+from .people_privacy import (
+    ALLOWED_FIELD_IDS,
+    HISTORY_REFUSAL,
+    LOCKED_DEFAULT_FIELDS,
+    blocked_fields_message,
+    scrub_person,
+)
 from .references import NOTHING_WRITTEN
 from .tasks import find_employees
 
@@ -181,20 +188,31 @@ def _placeholder(field_id: str) -> PeopleField:
 
 
 def _fields_to_read(
-    known: list[PeopleField], wanted: list[str] | None
+    known: list[PeopleField],
+    wanted: list[str] | None,
+    *,
+    hide_people_data: bool = False,
 ) -> list[PeopleField]:
     if not wanted:
-        defaults = [
-            find_fields(known, field_id) for field_id in DEFAULT_EMPLOYEE_FIELDS
-        ]
+        defaults = (
+            LOCKED_DEFAULT_FIELDS if hide_people_data else DEFAULT_EMPLOYEE_FIELDS
+        )
+        found_defaults = [find_fields(known, field_id) for field_id in defaults]
         return [
             found[0] if len(found) == 1 else _placeholder(field_id)
-            for field_id, found in zip(DEFAULT_EMPLOYEE_FIELDS, defaults, strict=True)
+            for field_id, found in zip(defaults, found_defaults, strict=True)
         ]
     chosen: list[PeopleField] = []
     problems: list[str] = []
+    blocked: list[PeopleField] = []
     for text in wanted:
         matches = find_fields(known, text)
+        if hide_people_data and matches:
+            allowed = [f for f in matches if f.id in ALLOWED_FIELD_IDS]
+            if not allowed:
+                blocked.extend(matches)
+                continue
+            matches = allowed
         if len(matches) == 1:
             chosen.append(matches[0])
             continue
@@ -202,6 +220,8 @@ def _fields_to_read(
         names = ", ".join(f"{f.qualified_label} ({f.id})" for f in offered) or "none"
         what = "matches several fields" if matches else "matches no field"
         problems.append(f"{text!r} {what}; candidates: {names}")
+    if blocked:
+        raise ValueError(blocked_fields_message(blocked, known))
     if problems:
         raise ValueError(
             "; ".join(problems) + ". hibob_list_employee_fields lists every field."
@@ -263,11 +283,16 @@ def register_employee_tools(
     mcp: FastMCP,
     *,
     read_only: bool = False,
+    hide_people_data: bool = False,
     client_factory: Callable[[], HiBobClient] = get_client,
     list_cache: NamedListCache | None = None,
     sleep: SleepFn | None = None,
 ) -> None:
-    """Register the employee tools; the write tools are omitted when ``read_only``."""
+    """Register the employee tools; the write tools are omitted when ``read_only``.
+
+    With ``hide_people_data`` the read and write tools show only what
+    people_privacy allows from HiBob's people endpoints.
+    """
     cache = list_cache if list_cache is not None else NamedListCache()
     read_annotations = dict(
         readOnlyHint=True,
@@ -400,11 +425,19 @@ def register_employee_tools(
             or an error beginning "Error:".
         """
         try:
+            if hide_people_data and history:
+                raise ValueError(HISTORY_REFUSAL)
             api = client_factory()
             person = require_employee(
                 await find_employee(api, cache, employee), employee
             )
-            wanted = _fields_to_read(await people_fields(api, cache), fields)
+            if hide_people_data:
+                person = scrub_person(person)
+            wanted = _fields_to_read(
+                await people_fields(api, cache),
+                fields,
+                hide_people_data=hide_people_data,
+            )
             record = await read_employee(
                 api, person["id"], [f.id for f in wanted], human_readable=True
             )
@@ -549,9 +582,17 @@ def register_employee_tools(
             return format_exception(exc)
 
     register_update_tools(
-        mcp, client_factory=client_factory, cache=cache, sleep=sleep or asyncio.sleep
+        mcp,
+        client_factory=client_factory,
+        cache=cache,
+        sleep=sleep or asyncio.sleep,
+        hide_people_data=hide_people_data,
     )
 
     register_record_tools(
-        mcp, client_factory=client_factory, cache=cache, sleep=sleep or asyncio.sleep
+        mcp,
+        client_factory=client_factory,
+        cache=cache,
+        sleep=sleep or asyncio.sleep,
+        hide_people_data=hide_people_data,
     )

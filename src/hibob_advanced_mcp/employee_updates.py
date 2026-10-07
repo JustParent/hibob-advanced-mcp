@@ -52,6 +52,7 @@ from .people_fields import (
     read_field,
     route_for,
 )
+from .people_privacy import scrub_result
 from .references import NOTHING_WRITTEN
 
 PUT_PATH = "/people/{employee_id}"
@@ -374,9 +375,28 @@ def _first_salary_question(
 
 
 def _later_question(
-    who: str, table: TableSpec, conflicts: list[dict[str, Any]], labels: list[str]
+    who: str,
+    table: TableSpec,
+    conflicts: list[dict[str, Any]],
+    labels: list[str],
+    hide_people_data: bool = False,
 ) -> dict[str, Any]:
     first = conflicts[0]
+    if hide_people_data:
+        columns = sorted(first["columns"])
+        return {
+            "argument": "allow_later_rows",
+            "question": (
+                f"A {table.label} row from {first['effectiveDate']} still holds a "
+                f"different {', '.join(columns)}, so this change would only last "
+                "until then. Go ahead anyway?"
+            ),
+            "applies_to": labels,
+            "later_rows": [
+                {"effectiveDate": c["effectiveDate"], "columns": sorted(c["columns"])}
+                for c in conflicts
+            ],
+        }
     held = ", ".join(
         f"{column} {value!r}" for column, value in first["columns"].items()
     )
@@ -397,6 +417,7 @@ async def _prepare_rows(
     day: str,
     reason: str | None,
     allow_later_rows: bool,
+    hide_people_data: bool = False,
 ) -> tuple[list[RowPlan], list[dict[str, Any]], list[str]]:
     """Read each table a change lands in and build the rows to add.
 
@@ -450,7 +471,9 @@ async def _prepare_rows(
             continue
         conflicts = later_conflicts(later, values)
         if conflicts and not allow_later_rows:
-            questions.append(_later_question(who, table, conflicts, labels))
+            questions.append(
+                _later_question(who, table, conflicts, labels, hide_people_data)
+            )
             continue
         if base is None and day > date.today().isoformat():
             warnings.append(
@@ -698,7 +721,11 @@ def register_update_tools(
     client_factory: Callable[[], HiBobClient],
     cache: NamedListCache,
     sleep: SleepFn,
+    hide_people_data: bool = False,
 ) -> None:
+    def shown(result: dict[str, Any]) -> str:
+        return _dump(scrub_result(result) if hide_people_data else result)
+
     @mcp.tool(
         name="hibob_update_employee",
         annotations=ToolAnnotations(
@@ -811,7 +838,7 @@ def register_update_tools(
             if dated and day is None:
                 plan.questions.append(_date_question(plan, dated))
             if plan.questions or plan.employee is None:
-                return _dump(
+                return shown(
                     {
                         "status": "needs_input",
                         "employee": plan.employee,
@@ -823,16 +850,16 @@ def register_update_tools(
             warnings: list[str] = []
             if dated and day is not None:
                 rows, questions, warnings = await _prepare_rows(
-                    api, plan, day, reason, allow_later_rows
+                    api, plan, day, reason, allow_later_rows, hide_people_data
                 )
                 if questions:
-                    return _dump(
+                    return shown(
                         {
                             "status": "needs_input",
                             "employee": plan.employee,
                             "questions": questions,
                         }
                     )
-            return _dump(await _apply(api, plan, rows, reason, sleep, warnings))
+            return shown(await _apply(api, plan, rows, reason, sleep, warnings))
         except Exception as exc:
             return format_exception(exc)

@@ -7,9 +7,11 @@ import pytest
 from hibob_advanced_mcp import config
 from hibob_advanced_mcp.config import (
     ENV_API_HOST,
+    ENV_HIDE_PEOPLE_DATA,
     ENV_READ_ONLY,
     ENV_SERVICE_USER_ID,
     hibob_api_base,
+    hide_people_data_enabled,
     load_settings,
     parse_hibob_api_host,
     read_only_enabled,
@@ -100,3 +102,25 @@ def test_hibob_hosts_do_not_warn(
     monkeypatch.setenv(ENV_API_HOST, "api.sandbox.hibob.com")
     load_settings()
     assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on", " True "])
+def test_hide_people_data_truthy_values(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv(ENV_HIDE_PEOPLE_DATA, value)
+    assert hide_people_data_enabled() is True
+    assert load_settings().hide_people_data is True
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "maybe"])
+def test_hide_people_data_falsy_values(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv(ENV_HIDE_PEOPLE_DATA, value)
+    assert hide_people_data_enabled() is False
+    assert load_settings().hide_people_data is False
+
+
+def test_hide_people_data_is_off_when_unset() -> None:
+    assert hide_people_data_enabled() is False

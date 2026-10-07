@@ -32,6 +32,7 @@ def _server_env(**overrides: str) -> dict[str, str]:
     # Let the subprocess import the package whether or not it is installed.
     env["PYTHONPATH"] = SRC + os.pathsep + env.get("PYTHONPATH", "")
     env.pop("HIBOB_READ_ONLY", None)
+    env.pop("HIBOB_HIDE_PEOPLE_DATA", None)
     env.update(overrides)
     return env
 

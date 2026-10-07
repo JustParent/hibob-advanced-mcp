@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import (
     ENV_API_HOST,
+    ENV_HIDE_PEOPLE_DATA,
     ENV_READ_ONLY,
     ENV_SERVICE_USER_ID,
     ENV_SERVICE_USER_TOKEN,
@@ -31,14 +32,19 @@ logging.basicConfig(level=logging.INFO, stream=sys.stderr)
 logger = logging.getLogger(SERVER_NAME)
 
 
-def build_server(read_only: bool | None = None) -> FastMCP:
+def build_server(
+    read_only: bool | None = None, hide_people_data: bool | None = None
+) -> FastMCP:
     """Create the MCP server with the tools this deployment should expose."""
+    settings = load_settings()
     if read_only is None:
-        read_only = load_settings().read_only
+        read_only = settings.read_only
+    if hide_people_data is None:
+        hide_people_data = settings.hide_people_data
     mcp = FastMCP(SERVER_NAME)
     register_workforce_planning_tools(mcp, read_only=read_only)
     register_tasks_tools(mcp, read_only=read_only)
-    register_employee_tools(mcp, read_only=read_only)
+    register_employee_tools(mcp, read_only=read_only, hide_people_data=hide_people_data)
     register_reports_tools(mcp)
     return mcp
 
@@ -63,6 +69,7 @@ def _print_diagnostics(mcp: FastMCP) -> None:
     if not settings.credentials_configured:
         print(f"  Set {ENV_SERVICE_USER_ID} and {ENV_SERVICE_USER_TOKEN}.")
     print(f"Read-only mode: {'on' if settings.read_only else 'off'}")
+    print(f"Hide people data: {'on' if settings.hide_people_data else 'off'}")
     print(f"Registered tools ({len(tools)}):")
     for tool in sorted(tools, key=lambda t: t.name):
         print(f"  - {tool.name}")
@@ -75,7 +82,8 @@ def main() -> None:
         description=(
             "MCP server for HiBob workforce planning, tasks and reports. Reads "
             f"{ENV_SERVICE_USER_ID}, {ENV_SERVICE_USER_TOKEN}, and optionally "
-            f"{ENV_API_HOST} and {ENV_READ_ONLY} from the environment."
+            f"{ENV_API_HOST}, {ENV_READ_ONLY} and {ENV_HIDE_PEOPLE_DATA} from "
+            "the environment."
         ),
     )
     parser.add_argument(

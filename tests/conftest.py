@@ -20,6 +20,7 @@ from hibob_advanced_mcp.cache import NamedListCache
 from hibob_advanced_mcp.client import HiBobClient
 from hibob_advanced_mcp.config import (
     ENV_API_HOST,
+    ENV_HIDE_PEOPLE_DATA,
     ENV_READ_ONLY,
     ENV_SERVICE_USER_ID,
     ENV_SERVICE_USER_TOKEN,
@@ -42,6 +43,7 @@ def clean_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv(ENV_SERVICE_USER_TOKEN, TEST_TOKEN)
     monkeypatch.delenv(ENV_API_HOST, raising=False)
     monkeypatch.delenv(ENV_READ_ONLY, raising=False)
+    monkeypatch.delenv(ENV_HIDE_PEOPLE_DATA, raising=False)
     client_module.reset_client()
     yield
     client_module.reset_client()
@@ -77,7 +79,9 @@ def server_factory(client: HiBobClient, recorded_sleeps: list[float]):
         recorded_sleeps.append(delay)
 
     def build(
-        read_only: bool = False, list_cache: NamedListCache | None = None
+        read_only: bool = False,
+        list_cache: NamedListCache | None = None,
+        hide_people_data: bool = False,
     ) -> FastMCP:
         mcp = FastMCP("hibob_advanced_mcp_test")
         register_workforce_planning_tools(
@@ -90,6 +94,7 @@ def server_factory(client: HiBobClient, recorded_sleeps: list[float]):
         register_employee_tools(
             mcp,
             read_only=read_only,
+            hide_people_data=hide_people_data,
             client_factory=lambda: client,
             list_cache=list_cache,
             sleep=fake_sleep,

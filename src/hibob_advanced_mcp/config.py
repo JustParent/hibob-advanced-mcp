@@ -16,6 +16,7 @@ ENV_SERVICE_USER_ID = "HIBOB_SERVICE_USER_ID"
 ENV_SERVICE_USER_TOKEN = "HIBOB_SERVICE_USER_TOKEN"
 ENV_API_HOST = "HIBOB_API_HOST"
 ENV_READ_ONLY = "HIBOB_READ_ONLY"
+ENV_HIDE_PEOPLE_DATA = "HIBOB_HIDE_PEOPLE_DATA"
 
 DEFAULT_API_HOST = "api.hibob.com"
 API_VERSION_PATH = "/v1"
@@ -55,6 +56,11 @@ def read_only_enabled() -> bool:
     return os.environ.get(ENV_READ_ONLY, "").strip().lower() in _TRUTHY
 
 
+def hide_people_data_enabled() -> bool:
+    """True when people reads must show only name, email, phone and site."""
+    return os.environ.get(ENV_HIDE_PEOPLE_DATA, "").strip().lower() in _TRUTHY
+
+
 @dataclass(frozen=True)
 class Settings:
     """Resolved server configuration."""
@@ -63,6 +69,7 @@ class Settings:
     service_user_token: str
     api_base: str
     read_only: bool
+    hide_people_data: bool
 
     @property
     def credentials_configured(self) -> bool:
@@ -86,4 +93,5 @@ def load_settings() -> Settings:
         service_user_token=os.environ.get(ENV_SERVICE_USER_TOKEN, "").strip(),
         api_base=api_base,
         read_only=read_only_enabled(),
+        hide_people_data=hide_people_data_enabled(),
     )

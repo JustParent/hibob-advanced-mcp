@@ -34,8 +34,20 @@ Read-only workforce planning use still needs the same workforce planning grant. 
 | `HIBOB_SERVICE_USER_TOKEN` | yes | Service user token (the Basic auth password). |
 | `HIBOB_API_HOST` | no | Defaults to production (`api.hibob.com`). Set `api.sandbox.hibob.com` for HiBob's sandbox. A pasted URL such as `https://api.sandbox.hibob.com/v1` is accepted; only the hostname is used. |
 | `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the twenty read tools; the thirteen write tools are not exposed at all. |
+| `HIBOB_HIDE_PEOPLE_DATA` | no | `true`, `1`, `yes` or `on` limits what the employee tools show from HiBob's people endpoints to name, work email, work phone and work site. See below. |
 
 Standard proxy variables (`HTTPS_PROXY`, `ALL_PROXY`) are honoured. A SOCKS5 proxy needs the optional `socks` extra — see the install line below.
+
+### Hiding people data
+
+Finding a person by name still works with `HIBOB_HIDE_PEOPLE_DATA` on, so that `hibob_get_employee` and `hibob_find_employee` stay useful. What changes:
+
+- `hibob_get_employee` reads only ID, display, full, first and last name, work email, work phone, work mobile and work site. With no fields named it returns the display name, email, phones and site. Any other field, such as job title, salary or a personal phone, is refused before HiBob is asked for it, and so is `history`.
+- The job title is left out of the employee shown in every employee tool.
+- `hibob_update_employee` and `hibob_add_employee_record` still write, but do not show what a change replaced (`from`) or what HiBob holds in place of a change it did not keep (`read`).
+- `hibob_list_employee_fields` is unchanged: it describes fields and tables but holds no employee data.
+
+Not covered: the workforce planning tools, tasks (`hibob_list_open_tasks`, `hibob_get_employee_tasks`) and reports. Reports can include any people field, so keep their separate HiBob permission off the service user if it must not reach that data. The lock limits what this server shows; the service user's HiBob permissions still decide what HiBob can return.
 
 ## Running it
 

@@ -44,6 +44,7 @@ from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
 from .list_values import list_item_names
 from .people_api import custom_tables, named_list, read_bulk_rows, read_table
+from .people_privacy import scrub_result
 from .references import NOTHING_WRITTEN
 
 WRITE_PATH = "/people/{employee_id}/{path}"
@@ -206,7 +207,11 @@ def register_record_tools(
     client_factory: Callable[[], HiBobClient],
     cache: NamedListCache,
     sleep: SleepFn,
+    hide_people_data: bool = False,
 ) -> None:
+    def shown(result: dict[str, Any]) -> str:
+        return _dump(scrub_result(result) if hide_people_data else result)
+
     @mcp.tool(
         name="hibob_add_employee_record",
         annotations=ToolAnnotations(
@@ -396,7 +401,7 @@ def register_record_tools(
                     }
                 )
             if questions or person is None:
-                return _dump(
+                return shown(
                     {
                         "status": "needs_input",
                         "employee": person,
@@ -421,7 +426,7 @@ def register_record_tools(
                     f"{who} already has this {rt.label} record (entry "
                     f"{same.get('id')}), so nothing was added."
                 ]
-                return _dump(result)
+                return shown(result)
             quoted = quote(employee_id, safe="")
             path = (
                 CUSTOM_WRITE_PATH.format(
@@ -439,6 +444,6 @@ def register_record_tools(
             if entry_id is not None:
                 result["entry_id"] = entry_id
             await _confirm(api, employee_id, rt, before, entry_id, row, result, sleep)
-            return _dump(result)
+            return shown(result)
         except Exception as exc:
             return format_exception(exc)
