@@ -7,7 +7,12 @@ no "calculated" flag, work.site is plain text beside the dated work.siteId
 
 from __future__ import annotations
 
+import copy
+import json as jsonlib
 from typing import Any
+
+import httpx
+import respx
 
 
 def _field(
@@ -117,3 +122,135 @@ CUSTOM_TABLES = {
         }
     ]
 }
+
+EMPLOYEE_ID = "3332883884017713238"
+MANAGER_ID = "3332883884017713999"
+
+JANE: dict[str, Any] = {
+    "id": EMPLOYEE_ID,
+    "displayName": "Jane Smith",
+    "email": "jane@x.com",
+    "firstName": "Jane",
+    "home": {"mobilePhone": "07700 900000"},
+    "work": {
+        "title": "101",
+        "department": "201",
+        "startDate": "2024-03-01",
+        "reportsTo": {"id": MANAGER_ID, "email": "sam@x.com"},
+        "custom": {"field_100": "L"},
+    },
+    "about": {"custom": {"field_300": ["1"], "field_700": False}},
+    "internal": {"status": "Active"},
+    "humanReadable": {
+        "work": {
+            "title": "Analyst",
+            "department": "Data",
+            "reportsTo": "Sam Jones",
+            "custom": {"field_100": "Large"},
+        }
+    },
+}
+SAM: dict[str, Any] = {
+    "id": MANAGER_ID,
+    "displayName": "Sam Jones",
+    "email": "sam@x.com",
+    "work": {"title": "102"},
+    "humanReadable": {"work": {"title": "Head of Data"}},
+}
+DIRECTORY = {
+    "employees": [
+        JANE,
+        SAM,
+        {"id": "77", "displayName": "Alex Lee", "email": "alex.lee@x.com"},
+        {"id": "78", "displayName": "Alex Lee", "email": "alex.lee2@x.com"},
+    ]
+}
+LISTS: dict[str, dict[str, Any]] = {
+    "department": {
+        "name": "department",
+        "values": [
+            {"id": "201", "name": "Data", "value": "Data"},
+            {"id": "202", "name": "Marketing", "value": "Marketing"},
+        ],
+    },
+    "shirtSize": {
+        "name": "shirtSize",
+        "values": [
+            {"id": "M", "name": "Medium", "value": "Medium"},
+            {"id": "L", "name": "Large", "value": "Large"},
+            {"id": "L2", "name": "Large", "value": "Large"},
+        ],
+    },
+    "languages": {
+        "name": "languages",
+        "values": [
+            {"id": "1", "name": "Spanish", "value": "Spanish"},
+            {"id": "2", "name": "French", "value": "French"},
+        ],
+    },
+}
+
+
+def _merge(target: dict[str, Any], patch: dict[str, Any]) -> None:
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(target.get(key), dict):
+            _merge(target[key], value)
+        else:
+            target[key] = value
+
+
+class FakePeople:
+    """HiBob's people API, enough for the employee tools.
+
+    Reads answer from ``records``; a PUT /people/{id} merges its body into the
+    record unless ``apply_writes`` is false (as HiBob does with fields the
+    service user may not edit). Every write is appended to ``writes``.
+    """
+
+    def __init__(self, mock_api: respx.MockRouter) -> None:
+        self.records = {
+            EMPLOYEE_ID: copy.deepcopy(JANE),
+            MANAGER_ID: copy.deepcopy(SAM),
+        }
+        self.writes: list[str] = []
+        self.apply_writes = True
+        self.put_status = 200
+        mock_api.get("/company/people/fields").mock(
+            return_value=httpx.Response(200, json=FIELDS)
+        )
+        mock_api.get("/people/custom-tables/metadata").mock(
+            return_value=httpx.Response(200, json=CUSTOM_TABLES)
+        )
+        self.directory = mock_api.post("/people/search").mock(
+            return_value=httpx.Response(200, json=DIRECTORY)
+        )
+        for name, body in LISTS.items():
+            mock_api.get(f"/company/named-lists/{name}").mock(
+                return_value=httpx.Response(200, json=body)
+            )
+        for identifier in (EMPLOYEE_ID, MANAGER_ID, "jane@x.com", "sam@x.com"):
+            mock_api.post(f"/people/{identifier}").mock(side_effect=self._read)
+        mock_api.post("/people/nobody@x.com").mock(
+            return_value=httpx.Response(404, json={})
+        )
+        self.put = mock_api.put(f"/people/{EMPLOYEE_ID}").mock(side_effect=self._put)
+
+    def _record(self, identifier: str) -> dict[str, Any] | None:
+        for record in self.records.values():
+            if identifier in (record["id"], record["email"]):
+                return record
+        return None
+
+    def _read(self, request: httpx.Request) -> httpx.Response:
+        record = self._record(request.url.path.rsplit("/", 1)[-1])
+        if record is None:
+            return httpx.Response(404, json={})
+        return httpx.Response(200, json=record)
+
+    def _put(self, request: httpx.Request) -> httpx.Response:
+        self.writes.append("fields")
+        if self.put_status != 200:
+            return httpx.Response(self.put_status)
+        if self.apply_writes:
+            _merge(self.records[EMPLOYEE_ID], jsonlib.loads(request.content))
+        return httpx.Response(200)

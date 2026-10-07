@@ -9,7 +9,7 @@ Only successful fetches are cached, so a rate-limit error is retried next time.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 DEFAULT_TTL_SECONDS = 300.0
@@ -41,6 +41,17 @@ class NamedListCache:
 
     def set(self, key: CacheKey, value: Any) -> None:
         self._entries[key] = (self._clock() + self._ttl, value)
+
+    async def get_or_fetch(
+        self, key: CacheKey, fetch: Callable[[], Awaitable[Any]]
+    ) -> Any:
+        """The cached value for ``key``, fetching and caching it if absent."""
+        hit = self.get(key)
+        if hit is not None:
+            return hit
+        value = await fetch()
+        self.set(key, value)
+        return value
 
     def clear(self) -> None:
         self._entries.clear()
