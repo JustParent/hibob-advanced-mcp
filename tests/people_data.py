@@ -393,6 +393,31 @@ LISTS: dict[str, dict[str, Any]] = {
             {"id": "Male", "name": "Male", "value": "Male"},
         ],
     },
+    "equityTypes": {
+        "name": "equityTypes",
+        "values": [
+            {"id": "Options", "name": "Options", "value": "Options"},
+            {"id": "RSU", "name": "RSU", "value": "RSU"},
+        ],
+    },
+    "grantTypes": {
+        "name": "grantTypes",
+        "values": [
+            {"id": "Initial Grant", "name": "Initial Grant", "value": "Initial Grant"},
+            {"id": "Merit Grant", "name": "Merit Grant", "value": "Merit Grant"},
+        ],
+    },
+    "grantStatuses": {
+        "name": "grantStatuses",
+        "values": [
+            {"id": "Granted", "name": "Granted", "value": "Granted"},
+            {
+                "id": "Pending Approval",
+                "name": "Pending Approval",
+                "value": "Pending Approval",
+            },
+        ],
+    },
     "certs": {
         "name": "certs",
         "values": [

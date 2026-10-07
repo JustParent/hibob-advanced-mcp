@@ -159,7 +159,7 @@ async def test_a_duplicate_hibob_refuses_says_records_are_only_added(
     assert "only adds rows" in text
 
 
-async def test_equity_is_undated_with_a_fixed_vocabulary(mock_api, mcp_server):
+async def test_equity_is_undated_and_its_types_come_from_lists(mock_api, mcp_server):
     fake = FakePeople(mock_api)
     result = json.loads(
         await _add(
@@ -168,7 +168,7 @@ async def test_equity_is_undated_with_a_fixed_vocabulary(mock_api, mcp_server):
             record_type="equity",
             values={
                 "Quantity": "100",
-                "Equity type": "Options",
+                "Equity type": "options",
                 "Grant type": "merit grant",
                 "Grant date": "2026-01-15",
             },
@@ -188,13 +188,18 @@ async def test_equity_is_undated_with_a_fixed_vocabulary(mock_api, mcp_server):
     assert result["status"] == "added"
     assert result["entry_id"] == fake.records_by_path["equities"][0]["id"]
     assert result["verified"] is True
-    bad = await _add(
-        mcp_server,
-        employee=EMPLOYEE_ID,
-        record_type="equity",
-        values={"Quantity": 1, "Equity type": "Options", "Grant type": "Gift"},
+    asked = json.loads(
+        await _add(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            record_type="equity",
+            values={"Quantity": 1, "Equity type": "Options", "Grant type": "Gift"},
+        )
     )
-    assert bad.startswith("Error:") and "Initial Grant" in bad
+    assert asked["status"] == "needs_input"
+    names = {c["name"] for c in asked["questions"][0]["candidates"]}
+    assert names == {"Initial Grant", "Merit Grant"}
+    assert len(fake.writes) == 1
 
 
 async def test_training_resolves_its_lists_and_amount(mock_api, mcp_server):
@@ -264,7 +269,8 @@ async def test_bank_details_are_sent_in_full_but_never_shown(mock_api, mcp_serve
             },
         )
     )
-    sent = fake.posted[0][1]
+    assert list(fake.posted[0][1]) == ["values"]
+    sent = fake.posted[0][1]["values"][0]
     assert sent["accountNumber"] == "12345678"
     assert sent["iban"] == "GB29NWBK60161331926819"
     assert sent["bankAccountType"] == "Savings"

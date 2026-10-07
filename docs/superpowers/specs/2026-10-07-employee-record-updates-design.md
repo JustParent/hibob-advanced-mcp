@@ -311,6 +311,22 @@ Verified live with writes (dated 2030, on one employee):
   its date; the tool warns when that row is future-dated.
 - Custom columns could not be checked: no table in the tenant has any.
 
+Verified live for records (one employee, nothing deleted):
+
+- Entitlement, deduction, variable pay, training, equity and a bank account
+  (non-sensitive columns only) were added and read back. Entitlement and
+  deduction types go by name; variable pay's type comes from the `payType`
+  list; equity and grant types come from lists (`equityTypes`, `grantTypes`,
+  `grantStatuses`), not free text.
+- HiBob refuses a bank account sent flat ("Missing required field: values"):
+  it takes `{"values": [row]}` like a custom table, contrary to its reference.
+- HiBob refuses a second deduction with the same date and type; the tool's
+  own check only catches an identical record (a retry), and leaves a
+  differing duplicate to HiBob's 400, whose message it passes on.
+- No account, IBAN, routing or document number was written live; those paths
+  are covered by mock tests, as are right-to-work, dependents and custom
+  tables.
+
 ### A record
 
 Build the row from the resolved values only; nothing is copied. A duplicate

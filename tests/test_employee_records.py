@@ -117,6 +117,11 @@ def test_body_for_adds_the_date_to_dated_types_and_wraps_custom_tables() -> None
     }
     assert body_for(BY_KEY["equity"], {"quantity": 5}, None) == {"quantity": 5}
     assert body_for(CERTS, {"column_1": "x"}, None) == {"values": [{"column_1": "x"}]}
+    # HiBob refuses a bank account without the wrapper: "Missing required field:
+    # values" (checked live), though its reference shows a flat body.
+    assert body_for(BY_KEY["bank_account"], {"bankName": "A"}, None) == {
+        "values": [{"bankName": "A"}]
+    }
 
 
 def test_sensitive_columns_are_masked_to_their_last_four_characters() -> None:
@@ -177,7 +182,9 @@ def test_describe_record_type_lists_columns_with_required_flags() -> None:
     assert by_id["entitlement"]["list"] == "entitlementType"
     assert by_id["endDate"]["type"] == "date"
     grant = {c["id"]: c for c in describe_record_type(BY_KEY["equity"])["columns"]}
-    assert grant["grantType"]["options"] == ["Initial Grant", "Merit Grant"]
+    assert grant["grantType"]["list"] == "grantTypes"
+    assert grant["equityType"]["list"] == "equityTypes"
+    assert grant["grantNumber"]["type"] == "number"
 
 
 def test_as_field_gives_the_value_resolver_the_types_it_knows() -> None:
@@ -201,3 +208,15 @@ def test_list_item_names_maps_ids_to_names_through_a_tree() -> None:
         },
     ]
     assert list_item_names(items) == {"ET1": "Lunch vouchers", "ET2": "Company Car"}
+
+
+def test_masking_also_covers_the_readable_copy_hibob_adds_to_a_row() -> None:
+    row = {
+        "id": 1,
+        "accountNumber": "12345678",
+        "humanReadable": {"accountNumber": "12345678", "bankName": "Acme"},
+    }
+    result = masked(BY_KEY["bank_account"], row)
+    assert result["accountNumber"] == "****5678"
+    assert result["humanReadable"] == {"accountNumber": "****5678", "bankName": "Acme"}
+    assert "12345678" not in str(result).replace("****5678", "")

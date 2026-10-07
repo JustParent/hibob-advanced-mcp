@@ -45,6 +45,10 @@ class RecordType:
     columns: tuple[Column, ...]
     entry_id: bool = False
     custom: bool = False
+    # HiBob wants the row as {"values": [row]}: custom tables, and bank accounts
+    # ("Missing required field: values", seen live, though its reference shows
+    # a flat body).
+    wrapped: bool = False
 
     @property
     def names(self) -> set[str]:
@@ -121,7 +125,7 @@ RECORD_TYPES = (
         False,
         (
             Column("quantity", "Quantity", "number", True),
-            Column("equityType", "Equity type", "text", True),
+            Column("equityType", "Equity type", "list", True, "equityTypes"),
             Column("grantDate", "Grant date", "date"),
             Column("vestingCommencementDate", "Vesting commencement date", "date"),
             Column("optionExpiration", "Option expiration", "date"),
@@ -131,19 +135,9 @@ RECORD_TYPES = (
             Column("taxPlan", "Tax plan", "text"),
             Column("specialTerms", "Special terms", "text"),
             Column("consentNumber", "Consent number", "text"),
-            Column(
-                "grantType",
-                "Grant type",
-                "text",
-                options=("Initial Grant", "Merit Grant"),
-            ),
-            Column(
-                "grantStatus",
-                "Grant status",
-                "text",
-                options=("Granted", "Pending Approval"),
-            ),
-            Column("grantNumber", "Grant number", "text"),
+            Column("grantType", "Grant type", "list", False, "grantTypes"),
+            Column("grantStatus", "Grant status", "list", False, "grantStatuses"),
+            Column("grantNumber", "Grant number", "number"),
             Column(
                 "vestingSchedule",
                 "Vesting schedule",
@@ -191,6 +185,7 @@ RECORD_TYPES = (
             Column("amount", "Allocation amount", "number"),
             Column("useForBonus", "Use for bonus", "boolean"),
         ),
+        wrapped=True,
     ),
     RecordType(
         "dependent",
@@ -328,11 +323,11 @@ def as_field(rt: RecordType, column: Column) -> PeopleField:
 
 
 def body_for(rt: RecordType, values: dict[str, Any], day: str | None) -> dict[str, Any]:
-    """The write body: the values, dated if the type is, wrapped for custom tables."""
+    """The write body: the values, dated if the type is, wrapped where HiBob wants."""
     row = dict(values)
     if rt.dated and day:
         row["effectiveDate"] = day
-    return {"values": [row]} if rt.custom else row
+    return {"values": [row]} if rt.custom or rt.wrapped else row
 
 
 def mask_text(value: Any) -> str:
@@ -343,12 +338,24 @@ def mask_text(value: Any) -> str:
 
 
 def masked(rt: RecordType, row: dict[str, Any]) -> dict[str, Any]:
-    """``row`` with its sensitive columns hidden but for their last four characters."""
+    """``row`` with its sensitive columns hidden but for their last four
+    characters, including in the readable copy HiBob adds under
+    "humanReadable"."""
     hidden = {c.id for c in rt.columns if c.sensitive}
-    return {
-        key: mask_text(value) if key in hidden and value not in (None, "") else value
-        for key, value in row.items()
-    }
+
+    def hide(values: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: mask_text(value)
+            if key in hidden and value not in (None, "")
+            else value
+            for key, value in values.items()
+        }
+
+    result = hide(row)
+    readable = result.get("humanReadable")
+    if isinstance(readable, dict):
+        result["humanReadable"] = hide(readable)
+    return result
 
 
 def compare_record(sent: dict[str, Any], row: dict[str, Any]) -> list[dict[str, Any]]:

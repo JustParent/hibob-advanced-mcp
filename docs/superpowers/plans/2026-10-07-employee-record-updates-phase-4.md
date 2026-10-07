@@ -152,9 +152,7 @@ def test_every_record_type_is_well_formed() -> None:
         ("Stock options", "equity"),
     ],
 )
-def test_record_types_are_found_by_label_key_alias_or_path(
-    text: str, key: str
-) -> None:
+def test_record_types_are_found_by_label_key_alias_or_path(text: str, key: str) -> None:
     assert [rt.key for rt in find_record_types(ALL, text)] == [key]
 
 
@@ -265,14 +263,20 @@ def test_describe_record_type_lists_columns_with_required_flags() -> None:
 def test_as_field_gives_the_value_resolver_the_types_it_knows() -> None:
     field = as_field(BY_KEY["variable"], find_column(BY_KEY["variable"], "amount"))
     assert (field.type, field.qualified_label) == ("currency", "Variable pay > Amount")
-    listed = as_field(BY_KEY["variable"], find_column(BY_KEY["variable"], "Variable type"))
+    listed = as_field(
+        BY_KEY["variable"], find_column(BY_KEY["variable"], "Variable type")
+    )
     assert (listed.type, listed.list_id) == ("list", "payType")
 
 
 def test_list_item_names_maps_ids_to_names_through_a_tree() -> None:
     items = [
         {"id": "ET1", "name": "Lunch vouchers"},
-        {"id": "G", "name": "Group", "children": [{"id": "ET2", "name": "Company Car"}]},
+        {
+            "id": "G",
+            "name": "Group",
+            "children": [{"id": "ET2", "name": "Company Car"}],
+        },
     ]
     assert list_item_names(items) == {"ET1": "Lunch vouchers", "ET2": "Company Car"}
 ```
@@ -368,7 +372,9 @@ RECORD_TYPES = (
         (
             Column("variableType", "Variable type", "list", True, "payType"),
             Column("amount", "Amount", "amount", True),
-            Column("paymentPeriod", "Payment period", "list", True, "variablePayPeriod"),
+            Column(
+                "paymentPeriod", "Payment period", "list", True, "variablePayPeriod"
+            ),
             Column("companyPercent", "Company percent", "number"),
             Column("departmentPercent", "Department percent", "number"),
             Column("individualPercent", "Individual percent", "number"),
@@ -383,7 +389,14 @@ RECORD_TYPES = (
         "bulk",
         True,
         (
-            Column("entitlement", "Entitlement type", "list", True, "entitlementType", "name"),
+            Column(
+                "entitlement",
+                "Entitlement type",
+                "list",
+                True,
+                "entitlementType",
+                "name",
+            ),
             Column("amount", "Amount", "amount", True),
             Column("endDate", "End date", "date"),
         ),
@@ -397,7 +410,9 @@ RECORD_TYPES = (
         "bulk",
         True,
         (
-            Column("deduction", "Deduction type", "list", True, "deductionType", "name"),
+            Column(
+                "deduction", "Deduction type", "list", True, "deductionType", "name"
+            ),
             Column("amount", "Amount", "amount", True),
             Column("endDate", "End date", "date"),
         ),
@@ -435,7 +450,14 @@ RECORD_TYPES = (
                 options=("Granted", "Pending Approval"),
             ),
             Column("grantNumber", "Grant number", "text"),
-            Column("vestingSchedule", "Vesting schedule", "list", False, "vestingSchedule", "int"),
+            Column(
+                "vestingSchedule",
+                "Vesting schedule",
+                "list",
+                False,
+                "vestingSchedule",
+                "int",
+            ),
         ),
     ),
     RecordType(
@@ -644,7 +666,9 @@ def compare_record(sent: dict[str, Any], row: dict[str, Any]) -> list[dict[str, 
     ]
 
 
-def find_identical(rows: list[dict[str, Any]], sent: dict[str, Any]) -> dict[str, Any] | None:
+def find_identical(
+    rows: list[dict[str, Any]], sent: dict[str, Any]
+) -> dict[str, Any] | None:
     """An existing row holding every value in ``sent``."""
     return next((row for row in rows if not compare_record(sent, row)), None)
 
@@ -793,7 +817,13 @@ RECORD_READS = {
     "right-to-work": "bulk",
     "about__table_1": "custom",
 }
-RECORD_ENTRY_IDS = {"variable", "entitlement", "deduction", "dependents", "right-to-work"}
+RECORD_ENTRY_IDS = {
+    "variable",
+    "entitlement",
+    "deduction",
+    "dependents",
+    "right-to-work",
+}
 ```
 
 In `FakePeople.__init__`, after the `for path in self.tables:` loop, add:
@@ -826,67 +856,70 @@ In `FakePeople.__init__`, after the `for path in self.tables:` loop, add:
 Add these methods to `FakePeople`:
 
 ```python
-    def add_record(self, path: str, **columns: Any) -> dict[str, Any]:
+def add_record(self, path: str, **columns: Any) -> dict[str, Any]:
+    rows = self.records_by_path[path]
+    row = {"id": max((r["id"] for r in rows), default=100) + 1, **columns}
+    rows.append(row)
+    return row
+
+
+def _record_read(self, path: str):
+    def handler(request: httpx.Request) -> httpx.Response:
+        self.reads.append(path)
+        return httpx.Response(200, json={"values": self.records_by_path[path]})
+
+    return handler
+
+
+def _record_bulk_read(self, path: str):
+    def handler(request: httpx.Request) -> httpx.Response:
+        self.reads.append(path)
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {"employeeId": EMPLOYEE_ID, "values": self.records_by_path[path]}
+                ],
+                "response_metadata": {"next_cursor": None},
+                "errors": self.bulk_errors.get(path, []),
+            },
+        )
+
+    return handler
+
+
+def _record_write(self, path: str):
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = jsonlib.loads(request.content)
+        row = dict(body["values"][0]) if "values" in body else dict(body)
+        self.writes.append(f"record:{path}")
+        self.posted.append((path, body))
+        status = self.row_status.get(path, 200)
+        if status != 200:
+            error = (
+                {"error": f"Duplicate effective date for {path}."}
+                if status == 400
+                else {}
+            )
+            return httpx.Response(status, json=error)
         rows = self.records_by_path[path]
-        row = {"id": max((r["id"] for r in rows), default=100) + 1, **columns}
-        rows.append(row)
-        return row
-
-    def _record_read(self, path: str):
-        def handler(request: httpx.Request) -> httpx.Response:
-            self.reads.append(path)
-            return httpx.Response(200, json={"values": self.records_by_path[path]})
-
-        return handler
-
-    def _record_bulk_read(self, path: str):
-        def handler(request: httpx.Request) -> httpx.Response:
-            self.reads.append(path)
+        duplicate = path == "deduction" and any(
+            r.get("effectiveDate") == row.get("effectiveDate")
+            and r.get("deduction") == row.get("deduction")
+            for r in rows
+        )
+        if duplicate:
             return httpx.Response(
-                200,
-                json={
-                    "results": [
-                        {"employeeId": EMPLOYEE_ID, "values": self.records_by_path[path]}
-                    ],
-                    "response_metadata": {"next_cursor": None},
-                    "errors": self.bulk_errors.get(path, []),
-                },
+                400, json={"error": "Duplicate effective date for deduction."}
             )
+        for column in self.drop_on_write.get(path, ()):
+            row[column] = None
+        stored = self.add_record(path, **row)
+        if path in RECORD_ENTRY_IDS:
+            return httpx.Response(200, json={"entryId": stored["id"]})
+        return httpx.Response(200)
 
-        return handler
-
-    def _record_write(self, path: str):
-        def handler(request: httpx.Request) -> httpx.Response:
-            body = jsonlib.loads(request.content)
-            row = dict(body["values"][0]) if "values" in body else dict(body)
-            self.writes.append(f"record:{path}")
-            self.posted.append((path, body))
-            status = self.row_status.get(path, 200)
-            if status != 200:
-                error = (
-                    {"error": f"Duplicate effective date for {path}."}
-                    if status == 400
-                    else {}
-                )
-                return httpx.Response(status, json=error)
-            rows = self.records_by_path[path]
-            duplicate = path == "deduction" and any(
-                r.get("effectiveDate") == row.get("effectiveDate")
-                and r.get("deduction") == row.get("deduction")
-                for r in rows
-            )
-            if duplicate:
-                return httpx.Response(
-                    400, json={"error": "Duplicate effective date for deduction."}
-                )
-            for column in self.drop_on_write.get(path, ()):
-                row[column] = None
-            stored = self.add_record(path, **row)
-            if path in RECORD_ENTRY_IDS:
-                return httpx.Response(200, json={"entryId": stored["id"]})
-            return httpx.Response(200)
-
-        return handler
+    return handler
 ```
 
 and in `__init__` (next to `self.reads`), add `self.bulk_errors: dict[str, list[dict[str, Any]]] = {}`.
@@ -900,8 +933,12 @@ async def test_read_bulk_rows_returns_one_employees_rows_newest_first(
     client: HiBobClient, mock_api: respx.MockRouter
 ) -> None:
     fake = FakePeople(mock_api)
-    fake.add_record("entitlement", effectiveDate="2025-01-01", entitlement="Company Car")
-    fake.add_record("entitlement", effectiveDate="2026-01-01", entitlement="Lunch vouchers")
+    fake.add_record(
+        "entitlement", effectiveDate="2025-01-01", entitlement="Company Car"
+    )
+    fake.add_record(
+        "entitlement", effectiveDate="2026-01-01", entitlement="Lunch vouchers"
+    )
     rows = await read_bulk_rows(client, EMPLOYEE_ID, "entitlement")
     assert [r["effectiveDate"] for r in rows] == ["2026-01-01", "2025-01-01"]
 
@@ -954,7 +991,9 @@ async def test_history_shows_bulk_only_records_and_masks_bank_numbers(
     mock_api, mcp_server
 ) -> None:
     fake = FakePeople(mock_api)
-    fake.add_record("entitlement", effectiveDate="2026-01-01", entitlement="Company Car")
+    fake.add_record(
+        "entitlement", effectiveDate="2026-01-01", entitlement="Company Car"
+    )
     fake.add_record("bank-accounts", bankName="Acme", accountNumber="12345678")
     result = json.loads(
         await call_tool(
@@ -1010,7 +1049,10 @@ async def read_bulk_rows(
                     f"HiBob would not return this employee's {table} rows: {message}"
                 )
         for result in payload.get("results") or []:
-            if isinstance(result, dict) and str(result.get("employeeId")) == employee_id:
+            if (
+                isinstance(result, dict)
+                and str(result.get("employeeId")) == employee_id
+            ):
                 rows += [r for r in result.get("values") or [] if isinstance(r, dict)]
     rows.sort(key=lambda row: str(row.get("effectiveDate") or ""), reverse=True)
     return rows
@@ -1034,37 +1076,34 @@ async def _record_types(api: HiBobClient, cache: NamedListCache) -> list[Any]:
 - In `hibob_list_employee_fields`, replace the block from `text = (search or "").strip().lower()` to the `result.update({...})` call with:
 
 ```python
-            text = (search or "").strip().lower()
-            types = await _record_types(api, cache)
-            if text:
-                fields = [
-                    f
-                    for f in fields
-                    if text in f.label.lower()
-                    or text in f.id.lower()
-                    or text in f.category.lower()
-                ]
-                tables = [
-                    t
-                    for t in tables
-                    if text in t["name"].lower()
-                    or any(text in c["label"].lower() for c in t["columns"])
-                ]
-                types = [
-                    t
-                    for t in types
-                    if text in t.label.lower()
-                    or any(text in c.label.lower() for c in t.columns)
-                ]
-            result.update(
-                {
-                    "count": len(fields),
-                    "fields": [describe_field(f) for f in fields],
-                    "custom_tables": tables,
-                    "record_types": [describe_record_type(t) for t in types],
-                }
-            )
-            return _dump(result)
+text = (search or "").strip().lower()
+types = await _record_types(api, cache)
+if text:
+    fields = [
+        f
+        for f in fields
+        if text in f.label.lower() or text in f.id.lower() or text in f.category.lower()
+    ]
+    tables = [
+        t
+        for t in tables
+        if text in t["name"].lower()
+        or any(text in c["label"].lower() for c in t["columns"])
+    ]
+    types = [
+        t
+        for t in types
+        if text in t.label.lower() or any(text in c.label.lower() for c in t.columns)
+    ]
+result.update(
+    {
+        "count": len(fields),
+        "fields": [describe_field(f) for f in fields],
+        "custom_tables": tables,
+        "record_types": [describe_record_type(t) for t in types],
+    }
+)
+return _dump(result)
 ```
 
 (Remove the old `result.update(...)` and its `return`. Update the docstring: add "and record_types: the tables that hold several rows (variable pay, entitlements, equity, training, bank accounts, dependents, right to work, custom tables) with their columns, which are required, and whether they need a date" to the Returns text.)
@@ -1239,7 +1278,10 @@ async def test_entitlement_is_sent_by_the_name_not_the_id(mock_api, mcp_server):
             mcp_server,
             employee=EMPLOYEE_ID,
             record_type="Entitlement",
-            values={"Entitlement type": "ET1", "Amount": {"value": 150, "currency": "GBP"}},
+            values={
+                "Entitlement type": "ET1",
+                "Amount": {"value": 150, "currency": "GBP"},
+            },
             effective_date="2030-01-01",
         )
     )
@@ -1253,7 +1295,10 @@ async def test_an_identical_record_is_not_added_twice(mock_api, mcp_server):
     arguments = dict(
         employee=EMPLOYEE_ID,
         record_type="Deduction",
-        values={"Deduction type": "Company Car", "Amount": {"value": 70, "currency": "GBP"}},
+        values={
+            "Deduction type": "Company Car",
+            "Amount": {"value": 70, "currency": "GBP"},
+        },
         effective_date="2030-01-01",
     )
     first = json.loads(await _add(mcp_server, **arguments))
@@ -1279,7 +1324,10 @@ async def test_a_duplicate_hibob_refuses_says_records_are_only_added(
         mcp_server,
         employee=EMPLOYEE_ID,
         record_type="Deduction",
-        values={"Deduction type": "Company Car", "Amount": {"value": 70, "currency": "GBP"}},
+        values={
+            "Deduction type": "Company Car",
+            "Amount": {"value": 70, "currency": "GBP"},
+        },
         effective_date="2030-01-01",
     )
     assert text.startswith("Error:")
@@ -1358,7 +1406,12 @@ async def test_a_dependent_returns_its_entry_id(mock_api, mcp_server):
             mcp_server,
             employee=EMPLOYEE_ID,
             record_type="dependent",
-            values={"First name": "Ada", "Surname": "Smith", "Birth date": "2015-04-01", "Gender": "female"},
+            values={
+                "First name": "Ada",
+                "Surname": "Smith",
+                "Birth date": "2015-04-01",
+                "Gender": "female",
+            },
         )
     )
     assert fake.posted[0][1] == {
@@ -1425,7 +1478,11 @@ async def test_right_to_work_numbers_are_masked(mock_api, mcp_server):
             mcp_server,
             employee=EMPLOYEE_ID,
             record_type="right to work",
-            values={"Document type": "Visa", "Document number": "AB1234567", "Expiration date": "2030-05-01"},
+            values={
+                "Document type": "Visa",
+                "Document number": "AB1234567",
+                "Expiration date": "2030-05-01",
+            },
         )
     )
     assert fake.posted[0][1]["number"] == "AB1234567"
@@ -1667,7 +1724,9 @@ async def _options(
     if not column.list:
         return []
     try:
-        names = list(list_item_names(await named_list(api, cache, column.list)).values())
+        names = list(
+            list_item_names(await named_list(api, cache, column.list)).values()
+        )
     except Exception:
         return []
     return names[:MAX_OPTIONS]
@@ -1785,9 +1844,7 @@ def register_record_tools(
         ),
     )
     async def hibob_add_employee_record(
-        employee: Annotated[
-            str | int, Field(description=EMPLOYEE_REF_DESCRIPTION)
-        ],
+        employee: Annotated[str | int, Field(description=EMPLOYEE_REF_DESCRIPTION)],
         record_type: Annotated[
             str,
             Field(
@@ -1855,7 +1912,9 @@ def register_record_tools(
             found = find_record_types(types, record_type)
             if len(found) != 1:
                 known = ", ".join(t.label for t in types)
-                what = "matches several record types" if found else "is not a record type"
+                what = (
+                    "matches several record types" if found else "is not a record type"
+                )
                 raise ValueError(
                     f"{record_type!r} {what}. The record types are: {known}. "
                     f"{NOTHING_WRITTEN}"
@@ -1921,7 +1980,9 @@ def register_record_tools(
                     f"does not apply. {NOTHING_WRITTEN}"
                 )
             missing = [c for c in rt.columns if c.required and c.id not in sent]
-            if missing and not any(q.get("key") for q in questions if q.get("argument") == "values"):
+            if missing and not any(
+                q.get("key") for q in questions if q.get("argument") == "values"
+            ):
                 described = []
                 for column in missing:
                     entry: dict[str, Any] = {
@@ -1945,7 +2006,11 @@ def register_record_tools(
                 )
             if questions or person is None:
                 return _dump(
-                    {"status": "needs_input", "employee": person, "questions": questions}
+                    {
+                        "status": "needs_input",
+                        "employee": person,
+                        "questions": questions,
+                    }
                 )
             employee_id = person["id"]
             row = dict(sent)
@@ -1968,7 +2033,9 @@ def register_record_tools(
                 return _dump(result)
             quoted = quote(employee_id, safe="")
             path = (
-                CUSTOM_WRITE_PATH.format(employee_id=quoted, table=quote(rt.path, safe=""))
+                CUSTOM_WRITE_PATH.format(
+                    employee_id=quoted, table=quote(rt.path, safe="")
+                )
                 if rt.custom
                 else WRITE_PATH.format(employee_id=quoted, path=rt.path)
             )

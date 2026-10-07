@@ -368,3 +368,17 @@ async def test_a_field_given_twice_is_refused(mock_api, mcp_server) -> None:
     assert "given twice" in text
     assert "Nothing was written" in text
     assert fake.writes == []
+
+
+async def test_an_unmatched_value_of_a_short_list_offers_every_option(
+    mock_api, mcp_server
+) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server, employee=EMPLOYEE_ID, changes={"Shirt size": "Gigantic"}
+        )
+    )
+    assert result["status"] == "needs_input"
+    names = {c["name"] for c in result["questions"][0]["candidates"]}
+    assert names == {"Medium", "Large"}

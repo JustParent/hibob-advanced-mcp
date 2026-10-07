@@ -42,7 +42,7 @@ from .employee_tables import (
 from .employee_values import EMPLOYEE_TYPES, LIST_TYPES, NeedsInput, coerce_value
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
-from .list_values import resolve_list_values
+from .list_values import list_item_names, resolve_list_values
 from .people_api import named_list, people_fields, read_employee, read_table
 from .people_fields import (
     PeopleField,
@@ -75,6 +75,8 @@ VIA = {"field": "field", "start_date": "start date endpoint", "email": "email en
 READ_BACK_DELAYS = (0.0, 1.0, 3.0, 6.0)
 
 SleepFn = Callable[[float], Awaitable[None]]
+# A list this short is offered whole when a value matches nothing in it.
+MAX_OFFERED = 10
 
 
 @dataclass
@@ -136,18 +138,25 @@ async def resolve_value(
             raise ValueError(
                 f"{target.qualified_label} takes one value, not {given!r}."
             )
-        match = resolve_list_values(
-            await named_list(api, cache, target.list_id), wanted
-        )
+        items = await named_list(api, cache, target.list_id)
+        match = resolve_list_values(items, wanted)
         if not match["complete"]:
             problem = (match["ambiguous"] or match["unmatched"])[0]
+            candidates = problem["candidates"]
+            if not candidates:
+                everything = list_item_names(items)
+                if 0 < len(everything) <= MAX_OFFERED:
+                    candidates = [
+                        {"id": item_id, "name": name}
+                        for item_id, name in everything.items()
+                    ]
             raise NeedsInput(
                 {
                     "argument": "changes",
                     "question": (
                         f"Which {target.label} did you mean by {problem['name']!r}?"
                     ),
-                    "candidates": problem["candidates"],
+                    "candidates": candidates,
                 }
             )
         ids = match["values"]
