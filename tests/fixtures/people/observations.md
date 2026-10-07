@@ -54,3 +54,14 @@ records scrubbed. Write probe made on david@harriethq.com's own record; every va
 - People search with no filter returns the whole directory (115 employees).
 - Bulk read paths: /bulk/people/{entitlement,deduction,dependents,right-to-work,variable,work}.
 - A wrong path (/people/{id}/variables) answers 200 with text/html.
+
+## Tool runs (hibob_update_employee / hibob_get_employee, live, all values restored)
+- A combined PUT /people answered 200 while silently not storing employee.jobRoleId; alone,
+  employee.jobRoleId and employee.jobFamilyId answer 304 as string or number (they follow the
+  job profile), so the Jobs fields are routed as not writable.
+- Read-back confirmed text, list, multi-list and employee-reference writes on the first read.
+- Repeating an identical write answers 304, reported as "unchanged".
+- POST /employees/{id}/start-date with {"startDate", "reason"} is reflected in work.startDate at once.
+- A people read asking for an employee.* field returns an "employee" category object beside the
+  record's fields: it is not a wrapper.
+- Not exercised: PUT /people/{id}/email (it sends a verification email and changes the login).
