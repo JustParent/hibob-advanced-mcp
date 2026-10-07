@@ -26,6 +26,7 @@ from .cache import NamedListCache
 from .client import HiBobClient
 from .employee_directory import EMPLOYEE_REF_DESCRIPTION, find_employee
 from .employee_rows import put_body, same_value
+from .employee_tables import to_wire
 from .employee_values import EMPLOYEE_TYPES, LIST_TYPES, NeedsInput, coerce_value
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
@@ -77,7 +78,12 @@ def _dump(payload: Any) -> str:
 
 
 async def _resolve_value(
-    api: HiBobClient, cache: NamedListCache, target: PeopleField, given: Any
+    api: HiBobClient,
+    cache: NamedListCache,
+    target: PeopleField,
+    given: Any,
+    *,
+    bare_amount_ok: bool = False,
 ) -> Any:
     if given is None:
         return coerce_value(target, given)
@@ -121,7 +127,7 @@ async def _resolve_value(
                 }
             )
         raise ValueError(f"No employee found for {given!r} ({target.qualified_label}).")
-    return coerce_value(target, given)
+    return coerce_value(target, given, bare_amount_ok=bare_amount_ok)
 
 
 async def _plan(
@@ -142,6 +148,7 @@ async def _plan(
     else:
         plan.problems.append(f"No employee found for {str(employee)!r}.")
     fields = await people_fields(api, cache)
+    seen: dict[str, str] = {}
     for key, given in changes.items():
         matches = find_fields(fields, key)
         if len(matches) != 1:
@@ -163,20 +170,25 @@ async def _plan(
             )
             continue
         target = matches[0]
+        if target.id in seen:
+            plan.problems.append(
+                f"{target.qualified_label} is given twice, as {seen[target.id]!r} "
+                f"and {key!r}."
+            )
+            continue
+        seen[target.id] = key
         route = route_for(target)
         if route.kind == "not_writable":
             plan.problems.append(
                 f"{target.qualified_label} cannot be changed: {route.reason}."
             )
             continue
-        if route.kind == "dated":
-            plan.problems.append(
-                f"{target.qualified_label} is kept in HiBob's {route.table} history; "
-                "adding rows to it is not supported yet."
-            )
-            continue
         try:
-            value = await _resolve_value(api, cache, target, given)
+            value = await _resolve_value(
+                api, cache, target, given, bare_amount_ok=route.wire == "amount"
+            )
+            if route.kind == "dated":
+                value = to_wire(route.wire or "text", value, target.qualified_label)
         except NeedsInput as need:
             plan.questions.append({"key": key, **need.question})
             continue
@@ -190,6 +202,17 @@ async def _plan(
                 continue
         plan.changes.append(Change(key, target, route, given, value))
     return plan
+
+
+def _date_question(plan: Plan, dated: list[Change]) -> dict[str, Any]:
+    """The one question that covers every change HiBob keeps dated rows for."""
+    who = (plan.employee or {}).get("name") or "the employee"
+    names = ", ".join(change.field.label for change in dated)
+    return {
+        "argument": "effective_date",
+        "question": f"From what date should {names} change for {who}?",
+        "applies_to": [change.field.qualified_label for change in dated],
+    }
 
 
 def _check_schedule(day: str | None, changes: list[Change]) -> None:
@@ -469,6 +492,9 @@ def register_update_tools(
             plan = await _plan(api, cache, employee, changes)
             if plan.problems:
                 raise ValueError(" ".join(plan.problems) + f" {NOTHING_WRITTEN}")
+            dated = [c for c in plan.changes if c.route.kind == "dated"]
+            if dated and day is None:
+                plan.questions.append(_date_question(plan, dated))
             if plan.questions or plan.employee is None:
                 return _dump(
                     {
@@ -477,7 +503,12 @@ def register_update_tools(
                         "questions": plan.questions,
                     }
                 )
-            _check_schedule(day, plan.changes)
+            _check_schedule(day, [c for c in plan.changes if c.route.kind != "dated"])
+            if dated:
+                raise ValueError(
+                    "Adding rows to HiBob's dated tables is not supported yet. "
+                    f"{NOTHING_WRITTEN}"
+                )
             return _dump(await _apply(api, plan, reason, sleep))
         except Exception as exc:
             return format_exception(exc)

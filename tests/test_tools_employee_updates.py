@@ -97,7 +97,6 @@ async def test_an_ambiguous_employee_is_a_question(mock_api, mcp_server) -> None
 @pytest.mark.parametrize(
     ("changes", "expected"),
     [
-        ({"Job title": "Head of Data"}, "not supported yet"),
         ({"City": "Leeds"}, "cannot be changed"),
         ({"Status": "Inactive"}, "cannot be changed"),
         ({"Mobile phone": None}, "null"),
@@ -305,3 +304,82 @@ async def test_a_change_read_back_at_once_needs_no_wait(
     )
     assert "unconfirmed" not in result
     assert recorded_sleeps == []
+
+
+async def test_dated_changes_without_a_date_ask_for_one_and_write_nothing(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            changes={
+                "Job title": "Head of Data",
+                "Reports to": "Sam Jones",
+                "Mobile phone": "1",
+            },
+        )
+    )
+    assert result["status"] == "needs_input"
+    [question] = result["questions"]
+    assert question["argument"] == "effective_date"
+    assert "Job title, Reports to" in question["question"]
+    assert "Jane Smith" in question["question"]
+    assert question["applies_to"] == ["Work > Job title", "Work > Reports to"]
+    assert fake.writes == []
+
+
+async def test_the_date_question_comes_with_the_other_questions(
+    mock_api, mcp_server
+) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            changes={"Job title": "Head of Data", "Shirt size": "Large"},
+        )
+    )
+    assert {q.get("argument") for q in result["questions"]} == {
+        "effective_date",
+        "changes",
+    }
+
+
+async def test_site_is_the_dated_site_field(mock_api, mcp_server) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server, employee=EMPLOYEE_ID, changes={"Site": "Madrid (Demo)"}
+        )
+    )
+    assert result["questions"][0]["applies_to"] == ["Work > Site"]
+
+
+async def test_a_field_given_twice_is_refused(mock_api, mcp_server) -> None:
+    fake = FakePeople(mock_api)
+    text = await _update(
+        mcp_server,
+        employee=EMPLOYEE_ID,
+        changes={"Mobile phone": "1", "home.mobilePhone": "2"},
+    )
+    assert text.startswith("Error:")
+    assert "given twice" in text
+    assert "Nothing was written" in text
+    assert fake.writes == []
+
+
+async def test_a_dated_change_with_a_date_is_not_written_until_rows_are_supported(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    text = await _update(
+        mcp_server,
+        employee=EMPLOYEE_ID,
+        changes={"Job title": "Head of Data"},
+        effective_date="2026-11-01",
+    )
+    assert text.startswith("Error:")
+    assert "not supported yet" in text
+    assert fake.writes == []

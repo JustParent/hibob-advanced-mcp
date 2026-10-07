@@ -105,3 +105,19 @@ def test_put_body_nests_by_path_with_root_fields_at_the_top() -> None:
 )
 def test_same_value(sent, read, same: bool) -> None:
     assert same_value(sent, read) is same
+
+
+def test_a_bare_amount_is_accepted_when_the_row_supplies_the_currency() -> None:
+    field = BY_ID["payroll.salary.payment"]
+    assert coerce_value(field, 60000, bare_amount_ok=True) == {
+        "value": 60000,
+        "currency": None,
+    }
+    assert coerce_value(
+        field, {"value": "5", "currency": "gbp"}, bare_amount_ok=True
+    ) == {
+        "value": 5,
+        "currency": "GBP",
+    }
+    with pytest.raises(NeedsInput):
+        coerce_value(field, 60000)

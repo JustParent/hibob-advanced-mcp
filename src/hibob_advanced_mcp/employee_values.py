@@ -42,7 +42,7 @@ def _number(field: PeopleField, value: Any) -> int | float:
     raise ValueError(f"{field.qualified_label} must be a plain number, not {value!r}.")
 
 
-def _currency(field: PeopleField, value: Any) -> dict[str, Any]:
+def _currency(field: PeopleField, value: Any, bare_ok: bool) -> dict[str, Any]:
     if isinstance(value, dict) and set(value) == {"value", "currency"}:
         code = value["currency"]
         if isinstance(code, str) and _CURRENCY.fullmatch(code.strip()):
@@ -56,6 +56,8 @@ def _currency(field: PeopleField, value: Any) -> dict[str, Any]:
         )
     if isinstance(value, (int, float, str)) and not isinstance(value, bool):
         amount = _number(field, value)
+        if bare_ok:
+            return {"value": amount, "currency": None}
         raise NeedsInput(
             {
                 "argument": "changes",
@@ -71,7 +73,9 @@ def _currency(field: PeopleField, value: Any) -> dict[str, Any]:
     )
 
 
-def coerce_value(field: PeopleField, value: Any) -> Any:
+def coerce_value(
+    field: PeopleField, value: Any, *, bare_amount_ok: bool = False
+) -> Any:
     """``value`` as HiBob takes it for ``field``; list and person fields excluded."""
     if value is None:
         raise ValueError(
@@ -97,7 +101,7 @@ def coerce_value(field: PeopleField, value: Any) -> Any:
     if kind == "number":
         return _number(field, value)
     if kind == "currency":
-        return _currency(field, value)
+        return _currency(field, value, bare_amount_ok)
     if kind == "boolean":
         if isinstance(value, bool):
             return value

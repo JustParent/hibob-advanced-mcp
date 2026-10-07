@@ -234,6 +234,7 @@ DIRECTORY = {
         SAM,
         {"id": "77", "displayName": "Alex Lee", "email": "alex.lee@x.com"},
         {"id": "78", "displayName": "Alex Lee", "email": "alex.lee2@x.com"},
+        ({"id": "79", "displayName": "Priya Patel", "email": "priya@x.com"},),
     ]
 }
 LISTS: dict[str, dict[str, Any]] = {
@@ -257,6 +258,65 @@ LISTS: dict[str, dict[str, Any]] = {
         "values": [
             {"id": "1", "name": "Spanish", "value": "Spanish"},
             {"id": "2", "name": "French", "value": "French"},
+        ],
+    },
+    "title": {
+        "name": "title",
+        "values": [
+            {"id": "101", "name": "Analyst", "value": "Analyst"},
+            {"id": "102", "name": "Head of Data", "value": "Head of Data"},
+            {"id": "103", "name": "Director", "value": "Director"},
+        ],
+    },
+    "site": {
+        "name": "site",
+        "values": [
+            {"id": 2606110, "name": "London (Demo)", "value": "London (Demo)"},
+            {"id": 2606111, "name": "New York (Demo)", "value": "New York (Demo)"},
+            {"id": 2606112, "name": "Madrid (Demo)", "value": "Madrid (Demo)"},
+        ],
+    },
+    "employmentstatus": {
+        "name": "employmentstatus",
+        "values": [
+            {"id": "Full time", "name": "Full time", "value": "Full time"},
+            {"id": "Part time", "name": "Part time", "value": "Part time"},
+        ],
+    },
+    "payrollEmploymentType": {
+        "name": "payrollEmploymentType",
+        "values": [
+            {"id": "Permanent", "name": "Permanent", "value": "Permanent"},
+            {"id": "Temporary", "name": "Temporary", "value": "Temporary"},
+        ],
+    },
+    "calendar": {
+        "name": "calendar",
+        "values": [
+            {
+                "id": 2657450,
+                "name": "Canada bank holidays",
+                "value": "Canada bank holidays",
+            },
+            {
+                "id": 2657449,
+                "name": "Hong Kong bank holidays",
+                "value": "Hong Kong bank holidays",
+            },
+        ],
+    },
+    "payPeriod": {
+        "name": "payPeriod",
+        "values": [
+            {"id": "Annual", "name": "Annual", "value": "Annual"},
+            {"id": "Monthly", "name": "Monthly", "value": "Monthly"},
+        ],
+    },
+    "payFrequency": {
+        "name": "payFrequency",
+        "values": [
+            {"id": "Weekly", "name": "Weekly", "value": "Weekly"},
+            {"id": "Monthly", "name": "Monthly", "value": "Monthly"},
         ],
     },
 }
