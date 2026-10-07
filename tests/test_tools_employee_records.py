@@ -296,7 +296,7 @@ async def test_a_dropped_sensitive_column_is_reported_without_its_value(
         )
     )
     assert result["unconfirmed"] == [
-        {"field": "Bank account > accountNumber", "sent": "****5678", "read": None}
+        {"field": "Bank account > Account number", "sent": "****5678", "read": None}
     ]
     assert "12345678" not in json.dumps(result).replace("****5678", "")
 
@@ -428,7 +428,7 @@ async def test_a_column_hibob_drops_is_reported_unconfirmed(
     )
     assert result["status"] == "added"
     assert result["unconfirmed"] == [
-        {"field": "Training > status", "sent": "Completed", "read": None}
+        {"field": "Training > Status", "sent": "Completed", "read": None}
     ]
     assert "verified" not in result or result["verified"] is False
     assert recorded_sleeps == [1.0, 3.0, 6.0]
@@ -454,3 +454,61 @@ async def test_the_tool_is_absent_in_read_only_mode(server_factory):
             "hibob_add_employee_record",
             {"employee": EMPLOYEE_ID, "record_type": "training", "values": {"x": 1}},
         )
+
+
+async def test_a_required_amount_given_bare_asks_once_about_the_currency(
+    mock_api, mcp_server
+):
+    fake = FakePeople(mock_api)
+    result = json.loads(
+        await _add(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            record_type="variable pay",
+            values={
+                "Variable type": "bonus",
+                "Amount": 5000,
+                "Payment period": "annual",
+            },
+            effective_date="2030-01-01",
+        )
+    )
+    assert result["status"] == "needs_input"
+    [question] = result["questions"]
+    assert question["argument"] == "values"
+    assert "currency" in question["question"]
+    assert fake.writes == []
+
+
+async def test_questions_about_a_value_name_the_values_argument(mock_api, mcp_server):
+    FakePeople(mock_api)
+    result = json.loads(
+        await _add(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            record_type="equity",
+            values={"Quantity": 1, "Equity type": "Options", "Grant type": "Gift"},
+        )
+    )
+    assert [q["argument"] for q in result["questions"]] == ["values"]
+
+
+async def test_a_required_column_hibob_dropped_is_called_out(mock_api, mcp_server):
+    """Checked live: HiBob accepts a currency it cannot store, passes the mandatory
+    check, and leaves the column empty."""
+    fake = FakePeople(mock_api)
+    fake.drop_on_write["variable"] = {"amount"}
+    result = json.loads(
+        await _add(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            record_type="variable pay",
+            values=VARIABLE,
+            effective_date="2030-01-01",
+        )
+    )
+    assert result["status"] == "added"
+    assert result["verified"] is False
+    assert result["unconfirmed"][0]["field"] == "Variable pay > Amount"
+    assert "required column" in result["unconfirmed_note"]
+    assert "Amount" in result["unconfirmed_note"]

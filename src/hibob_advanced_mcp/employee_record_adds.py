@@ -169,19 +169,35 @@ async def _confirm(
         result["verification_error"] = format_exception(exc)
         return
     result["verified"] = False
+    labels = {c.id: c.label for c in rt.columns}
+    required = [
+        labels[p["column"]]
+        for p in problems
+        if p["column"] in labels and _required(rt, p["column"])
+    ]
     result["unconfirmed"] = [
         {
-            "field": f"{rt.label} > {p['column']}",
+            "field": f"{rt.label} > {labels.get(p['column'], p['column'])}",
             "sent": _display(rt, p["column"], p["sent"]),
             "read": _display(rt, p["column"], p["read"]),
         }
         for p in problems
     ]
-    result["unconfirmed_note"] = (
+    note = (
         "HiBob may still be applying this (its reads can lag writes by up to 20 "
-        "seconds), or it dropped a column it would not store. Check again with "
-        "hibob_get_employee."
+        "seconds), or it dropped a column it would not store (it does this to a "
+        "currency it cannot read, while still passing the mandatory check)."
     )
+    if required:
+        note += (
+            f" The required column {', '.join(required)} is empty in the record "
+            "that was added."
+        )
+    result["unconfirmed_note"] = note + " Check again with hibob_get_employee."
+
+
+def _required(rt: RecordType, column_id: str) -> bool:
+    return any(c.id == column_id and c.required for c in rt.columns)
 
 
 def register_record_tools(
@@ -298,6 +314,7 @@ def register_record_tools(
             who = (person or {}).get("name") or "the employee"
             sent: dict[str, Any] = {}
             seen: dict[str, str] = {}
+            asked: set[str] = set()
             for key, given in values.items():
                 column = find_column(rt, key)
                 if column is None:
@@ -324,7 +341,12 @@ def register_record_tools(
                 try:
                     sent[column.id] = await _value(api, cache, rt, column, given)
                 except NeedsInput as need:
-                    questions.append({"key": key, **need.question})
+                    # The value resolver names the update tool's argument; this one's is
+                    # "values". The column is asked about here, so not again as missing.
+                    questions.append(
+                        {"key": key, **need.question, "argument": "values"}
+                    )
+                    asked.add(column.id)
                 except ValueError as exc:
                     problems.append(str(exc))
             if problems:
@@ -344,7 +366,11 @@ def register_record_tools(
                     f"{rt.label} records have no effective date, so effective_date "
                     f"does not apply. {NOTHING_WRITTEN}"
                 )
-            missing = [c for c in rt.columns if c.required and c.id not in sent]
+            missing = [
+                c
+                for c in rt.columns
+                if c.required and c.id not in sent and c.id not in asked
+            ]
             if missing and not any(
                 q.get("key") for q in questions if q.get("argument") == "values"
             ):

@@ -95,3 +95,10 @@ records scrubbed. Write probe made on david@harriethq.com's own record; every va
 - Rows come back with `id`, `changedBy`, the columns at the top level and a `humanReadable` copy.
 - hibob_add_employee_record added rows by label ("Name", "Species": "dog" resolved to the list item), found the new row by diffing the table, treated a repeat call as already present, and answered a species that matched nothing exactly ("Fish") with the near candidate ("Goldfish").
 - GET of a custom table, like bank accounts, answers 400 HTML when sent with `Content-Type: application/json`; justparent's base client sends it on every request, so its custom-table reads failed until it got an opt-out.
+
+## Mandatory custom-table column (live, "Pet ownership" with a mandatory currency column "Cost", 2026-10-07)
+- Metadata marks it `mandatory: true`, type `currency`. A POST without it is refused: 400 "column_... column is mandatory" (nothing written). A PUT of other columns on an older row that has no value for it is fine (200, patch semantics); a PUT that sets it to null is refused with the same 400.
+- A currency value is `{"value": 12, "currency": "GBP"}`; rows read back that way, with `humanReadable` "£12.00".
+- HiBob silently drops a currency it cannot read: a bare number (25) and an unreal code ("pounds") both answered 200, passed the mandatory check, and stored Cost as null. An unreal three-letter code ("XYZ") is dropped the same way. The tool rejects a bare number and a non-three-letter code before sending; for a made-up three-letter code its read-back reports `verified: false` and names the empty required column.
+- justparent surfaces HiBob's "column is mandatory" message when a create lacks it (after its flat-then-wrapped attempts).
+- Rows left on david@harriethq.com (Pet ownership): Goldie 16588405, "API check bare cost" 16588451, "API check bad currency" 16588452, "API check no cost"-style attempts were refused, "JP with cost" 16588453, "API check XYZ" 16588462 (Cost empty); Rex 16587837 now has Cost 5 GBP.
