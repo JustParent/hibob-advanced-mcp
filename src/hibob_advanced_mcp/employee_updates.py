@@ -196,6 +196,7 @@ async def _plan(
         plan.problems.append(f"No employee found for {str(employee)!r}.")
     fields = await people_fields(api, cache)
     seen: dict[str, str] = {}
+    seen_columns: dict[tuple[str | None, str | None], tuple[str, str]] = {}
     for key, given in changes.items():
         matches = find_fields(fields, key)
         if len(matches) != 1:
@@ -230,6 +231,17 @@ async def _plan(
                 f"{target.qualified_label} cannot be changed: {route.reason}."
             )
             continue
+        if route.kind == "dated":
+            column_key = (route.table, route.column)
+            if column_key in seen_columns:
+                first, other = seen_columns[column_key]
+                plan.problems.append(
+                    f"{target.qualified_label} and {other} are the same "
+                    f"{route.table} column, given as {first!r} and {key!r}. Give "
+                    "only one."
+                )
+                continue
+            seen_columns[column_key] = (key, target.qualified_label)
         try:
             value = await resolve_value(
                 api, cache, target, given, bare_amount_ok=route.wire == "amount"
@@ -763,16 +775,19 @@ def register_update_tools(
             "unconfirmed_note"?, "failed"?, "not_sent"?}; or "needs_input" as
             above; or an error beginning "Error:" (nothing written).
 
-        Job title, department, site, manager, employment terms and salary are
-        HiBob dated rows, and HiBob replaces a row wholesale, so each is
+        Job title, department, site, manager, employment terms and salary
+        are HiBob dated rows, and HiBob replaces a row wholesale, so each is
         written as a new row dated effective_date that copies the row before
-        that date with the change laid over it. The tool asks for a missing
-        effective_date and never assumes today. It refuses, writing nothing,
-        if the table cannot be read in full, a row already exists on that
-        date (it never edits a row), or there is nothing earlier to copy
-        (except a first salary row, which needs the amount with its currency
-        and the pay period). A later row that still holds a different value
-        comes back as a question; answer it with allow_later_rows=true.
+        that date with the change laid over it. "Manager" and "Reports to"
+        are the same column. Give "Change type" (Promotion, Lateral Move,
+        ...) to record why; without it HiBob tags the new row "Other". The
+        tool asks for a missing effective_date and never assumes today. It
+        refuses, writing nothing, if the table cannot be read in full, a row
+        already exists on that date (it never edits a row), or there is
+        nothing earlier to copy (except a first salary row, which needs the
+        amount with its currency, the pay period and the pay frequency). A
+        later row that still holds a different value comes back as a
+        question; answer it with allow_later_rows=true.
 
         Writes go in this order, each sent once: new rows (work, employment,
         salary), plain fields (one PUT), start date, then work email (HiBob

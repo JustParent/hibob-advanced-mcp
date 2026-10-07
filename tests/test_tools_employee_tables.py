@@ -533,3 +533,55 @@ async def test_a_future_dated_first_salary_row_warns_that_hibob_counts_it_as_cur
     )
     assert result["status"] == "updated"
     assert any("counts a first salary row as current" in w for w in result["warnings"])
+
+
+async def test_manager_and_change_type_can_be_set_on_a_work_row(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            changes={
+                "Job title": "Head of Data",
+                "Manager": "Priya Patel",
+                "Change type": "promotion",
+            },
+            effective_date="2026-11-01",
+        )
+    )
+    assert fake.posted == [
+        (
+            "work",
+            {
+                "effectiveDate": "2026-11-01",
+                "title": "102",
+                "department": "201",
+                "siteId": 2606110,
+                "reportsTo": {"id": "79"},
+                "workChangeType": "Promotion",
+            },
+        )
+    ]
+    assert result["status"] == "updated"
+    assert "unconfirmed" not in result
+    by_id = {a["id"]: a for a in result["applied"]}
+    assert by_id["work.manager"]["from"] == "Sam Jones"
+    assert by_id["work.workChangeType"]["to"] == "promotion"
+
+
+async def test_the_manager_given_twice_under_two_names_is_refused(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    text = await _update(
+        mcp_server,
+        employee=EMPLOYEE_ID,
+        changes={"Manager": "Priya Patel", "Reports to": "Sam Jones"},
+        effective_date="2026-11-01",
+    )
+    assert text.startswith("Error:")
+    assert "same work column" in text
+    assert "Nothing was written" in text
+    assert fake.writes == []

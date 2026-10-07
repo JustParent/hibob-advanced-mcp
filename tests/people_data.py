@@ -148,6 +148,21 @@ FIELDS = [
     ),
     _field("payroll.salary.yearlyPayment", "Yearly payment", "Payroll", "currency"),
     _field(
+        "work.manager",
+        "Manager",
+        "Work",
+        "employee-reference",
+        historical=True,
+    ),
+    _field(
+        "work.workChangeType",
+        "Change type",
+        "Work",
+        "list",
+        list_id="workChangeType",
+        historical=True,
+    ),
+    _field(
         "work.customColumns.column_55",
         "Cost centre",
         "Work",
@@ -416,6 +431,14 @@ LISTS: dict[str, dict[str, Any]] = {
                 "name": "Pending Approval",
                 "value": "Pending Approval",
             },
+        ],
+    },
+    "workChangeType": {
+        "name": "workChangeType",
+        "values": [
+            {"id": "Promotion", "name": "Promotion", "value": "Promotion"},
+            {"id": "Lateral Move", "name": "Lateral Move", "value": "Lateral Move"},
+            {"id": "Other", "name": "Other", "value": "Other"},
         ],
     },
     "certs": {

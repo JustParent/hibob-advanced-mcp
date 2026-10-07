@@ -82,3 +82,8 @@ records scrubbed. Write probe made on david@harriethq.com's own record; every va
 - Bank accounts: HiBob refuses a flat body ("Missing required field: values"), contrary to its reference; the row goes in `{"values": [row]}` like custom tables. Account type list `bankaccounttype` is Current/Savings/Other (the reference says Checking/Savings). A bank account with only bank name, nickname and account type was added and read back. Rows read back carry a `humanReadable` copy of each value, so masking covers it too.
 - Not written live: any account, IBAN, routing or document number (a standing rule of the executor, even for test data); right-to-work records (they also set the right-to-work expiry field); dependents; custom tables (none exist in the tenant). Their bodies are as documented, except bank accounts above.
 - Rows left on david@harriethq.com: entitlement 26839977 (2030-01-01), deduction 56858716 (2030-01-01), variable pay 2185610 (2030-01-01), training 1879438, equity 544445, bank account 16571610 (bank name and nickname "API check", no numbers).
+
+## Manager and change type (live, david@harriethq.com, 2026-10-07)
+- "Manager" (`work.manager`, an employee reference) and "Reports to" (`work.reportsTo`) are the same value; a work row holds it once as `reportsTo`, and setting it through "Manager" was stored and read back. Both were wrongly refused as calculated before.
+- "Change type" (`work.workChangeType`, list `workChangeType`) is accepted on a work POST and read back ("Promotion"); a row written without it is tagged "Other".
+- Row left on david@harriethq.com: work 1000020300103 (2030-01-03: title CEO, manager Alan Tullin, change type Promotion).

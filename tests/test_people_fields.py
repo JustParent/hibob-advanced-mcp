@@ -202,6 +202,10 @@ def test_real_metadata_fixture() -> None:
     assert all(f.label for f in real)
     assert route_for(fields["payroll.salary.payment"]).column == "base"
     assert route_for(fields["work.siteId"]).wire == "int"
+    # "Manager" is the same value as "Reports to", and "Change type" is an
+    # ordinary dated column: neither is calculated.
+    assert route_for(fields["work.manager"]).column == "reportsTo"
+    assert route_for(fields["work.workChangeType"]).column == "workChangeType"
     assert route_for(fields["payroll.employment.calendarId"]).wire == "int"
     for derived in (
         "payroll.salary.yearlyPayment",
@@ -224,6 +228,8 @@ def test_real_metadata_fixture() -> None:
         ("work.department", "work", "department", "text"),
         ("work.siteId", "work", "siteId", "int"),
         ("work.reportsTo", "work", "reportsTo", "employee"),
+        ("work.manager", "work", "reportsTo", "employee"),
+        ("work.workChangeType", "work", "workChangeType", "text"),
         ("work.customColumns.column_55", "work", "customColumns.column_55", "text"),
         ("payroll.employment.contract", "employment", "contract", "text"),
         ("payroll.employment.type", "employment", "type", "text"),

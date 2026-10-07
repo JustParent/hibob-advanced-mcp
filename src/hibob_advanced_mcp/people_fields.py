@@ -30,6 +30,11 @@ DATED_COLUMNS = {
     "work.department": ("work", "department", "text"),
     "work.siteId": ("work", "siteId", "int"),
     "work.reportsTo": ("work", "reportsTo", "employee"),
+    # "Manager" is the same person as "Reports to", shaped as an employee
+    # reference; a work row holds it once, as reportsTo.
+    "work.manager": ("work", "reportsTo", "employee"),
+    # HiBob tags a row "Other" when this is left out.
+    "work.workChangeType": ("work", "workChangeType", "text"),
     "payroll.employment.contract": ("employment", "contract", "text"),
     "payroll.employment.type": ("employment", "type", "text"),
     "payroll.employment.salaryPayType": ("employment", "salaryPayType", "text"),
@@ -104,8 +109,6 @@ CALCULATED_FIELDS = frozenset(
         "work.reportsTo.email",
         "work.reportsToIdInCompany",
         "work.secondLevelManager",
-        "work.manager",
-        "work.workChangeType",
         "address.activeEffectiveDate",
         "payroll.employment.activeEffectiveDate",
         "payroll.employment.fte",
