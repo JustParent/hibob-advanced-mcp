@@ -38,6 +38,10 @@ TASKS_PERMISSION = "access to tasks (read and complete) in the Tasks API"
 EMPLOYEE_LIFECYCLE_PERMISSION = (
     "People's data > People's fields: Edit on the Lifecycle category"
 )
+PEOPLE_DATA_PERMISSION = (
+    "People's data > People's fields: View on the categories read, Edit on "
+    "those changed, and View history to read a table's earlier rows"
+)
 REPORTS_PERMISSION = (
     "Features > Reports > View reports according to people's data access rights, "
     "plus People's Data access for the report's employees and fields; reports "
@@ -124,6 +128,8 @@ def _permission_for(path: str) -> str:
         return TASKS_PERMISSION
     if "/employees/" in path:
         return EMPLOYEE_LIFECYCLE_PERMISSION
+    if "/people/" in path:
+        return PEOPLE_DATA_PERMISSION
     if "/company/reports" in path:
         return REPORTS_PERMISSION
     if "/workforce-planning/" in path and "/position-budget" in path:
@@ -187,7 +193,7 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             "hibob_list_open_tasks lists task IDs and hibob_find_employee finds "
             "employee IDs."
         )
-    elif status == 404 and "/employees/" in path:
+    elif status == 404 and ("/employees/" in path or "/people/" in path):
         message = (
             f"HiBob returned 404 for {path}. Check the employee ID - "
             "hibob_find_employee finds employee IDs by work email."
@@ -222,6 +228,12 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             + " Check the dates are YYYY-MM-DD and that the termination reason "
             "and reason type are items of the company's terminationReason and "
             "lifecycleReasonType lists."
+        )
+    elif status == 400 and "/people/" in path:
+        message = (
+            "HiBob rejected the employee change (400)"
+            + (f": {detail.rstrip('.')}." if detail else ".")
+            + " Check field IDs and values with hibob_list_employee_fields."
         )
     elif (
         status == 400

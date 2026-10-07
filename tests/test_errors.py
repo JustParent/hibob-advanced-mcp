@@ -8,6 +8,7 @@ import pytest
 from hibob_advanced_mcp.errors import (
     BUDGET_PERMISSION_PATH,
     MANAGE_POSITIONS_PERMISSION_PATH,
+    PEOPLE_DATA_PERMISSION,
     TOTAL_COST_NOTE,
     HiBobApiError,
     format_exception,
@@ -176,3 +177,29 @@ def test_format_exception_renders_timeouts_without_traceback() -> None:
 
 def test_format_exception_prefixes_value_errors() -> None:
     assert format_exception(ValueError("bad field")) == "Error: bad field"
+
+
+PEOPLE_URL = "https://api.hibob.com/v1/people/3332883884017713238"
+
+
+def test_403_on_employee_data_names_the_people_fields_permission() -> None:
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(_response(403, {}, url=f"{PEOPLE_URL}/work"))
+    assert PEOPLE_DATA_PERMISSION in str(excinfo.value)
+    assert "Manage positions" not in str(excinfo.value)
+
+
+def test_404_on_employee_data_points_at_find_employee() -> None:
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(_response(404, {}, url=PEOPLE_URL))
+    assert "hibob_find_employee" in str(excinfo.value)
+
+
+def test_400_on_employee_data_points_at_the_employee_fields_tool() -> None:
+    body = {"key": "x", "error": "Unknown field ID: /work/site"}
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(_response(400, body, url=PEOPLE_URL))
+    message = str(excinfo.value)
+    assert "Unknown field ID: /work/site" in message
+    assert "hibob_list_employee_fields" in message
+    assert "hibob_list_workforce_fields" not in message

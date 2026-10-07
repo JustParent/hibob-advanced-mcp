@@ -19,7 +19,7 @@ from .config import (
     Settings,
     load_settings,
 )
-from .errors import HiBobConfigError, raise_for_hibob_error
+from .errors import HiBobApiError, HiBobConfigError, raise_for_hibob_error
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 MAX_READ_RETRIES = 2
@@ -27,6 +27,13 @@ RETRYABLE_STATUSES = frozenset({429, 502, 503, 504})
 MAX_RETRY_DELAY_SECONDS = 10.0
 
 SleepFn = Callable[[float], Awaitable[None]]
+
+
+def _is_html(response: httpx.Response) -> bool:
+    if "text/html" in response.headers.get("content-type", "").lower():
+        return True
+    head = response.content[:64].lstrip().lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html")
 
 
 class HiBobClient:
@@ -99,10 +106,19 @@ class HiBobClient:
         """Send a request and return the decoded JSON body.
 
         Returns ``None`` for empty bodies (HiBob answers some writes with 204).
+        An HTML body is refused: HiBob answers a wrong path or parameter with
+        its login page and a 200.
         """
         response = await self.request_response(method, path, json=json, is_read=is_read)
         if response.status_code == 204 or not response.content:
             return None
+        if _is_html(response):
+            raise HiBobApiError(
+                f"HiBob answered {method} {path} with an HTML page rather than "
+                "JSON, which it does when the endpoint path or a parameter is "
+                "wrong.",
+                status_code=response.status_code,
+            )
         try:
             return response.json()
         except ValueError:

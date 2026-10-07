@@ -143,3 +143,18 @@ async def test_empty_response_body_returns_none(
     )
 
     assert await client.patch("/workforce-planning/positions/1/cancel") is None
+
+
+async def test_html_page_in_place_of_json_is_an_error(
+    client: HiBobClient, mock_api: respx.MockRouter
+) -> None:
+    """HiBob answers a wrong path or parameter with its login page and a 200."""
+    mock_api.get("/people/1/variables").mock(
+        return_value=httpx.Response(
+            200,
+            text="<!DOCTYPE html><html><body>Sign in</body></html>",
+            headers={"content-type": "text/html; charset=utf-8"},
+        )
+    )
+    with pytest.raises(HiBobApiError, match="HTML"):
+        await client.get("/people/1/variables")
