@@ -39,6 +39,8 @@ Success means:
   no write path for (Work Location, Employer, Disability status).
 - Calculated fields (`fullName`, tenure, `fte`, `percentageOfAnnualSalary`)
   and document fields.
+- Working patterns (employment `workingPattern`, `personalWorkingPatternType`):
+  a row copies them as read, but they cannot be changed yet.
 - Clearing a value (`null`), creating employees, adding named-list items,
   revoking Bob access.
 
@@ -190,9 +192,11 @@ In order:
      `work.department` → `department`, `work.site` → `siteId`,
      `work.reportsTo` → `reportsTo: {id}`, `work.customColumns.column_N` →
      `customColumns.column_N`.
-   - `payroll.employment.*` → a column of a new employment row.
-   - `payroll.salary.*` → a column of a new salary row (derived columns
-     such as monthly payment are refused).
+   - `payroll.employment.*` → a column of a new employment row: contract,
+     type, salary pay type, FLSA code, holiday calendar.
+   - `payroll.salary.*` → a column of a new salary row: `payment` → `base`
+     (an amount with its currency), pay period, pay frequency. The derived
+     yearly and monthly payments are refused.
    - anything else → refused as not writable.
 5. Everything else → a plain field in the one `PUT /people/{id}` body.
 
@@ -234,26 +238,65 @@ sandbox's real metadata in phase 1.
 ### A new dated row (work, employment, salary)
 
 1. Read the table (`GET /people/{id}/<table>`, `includeHumanReadable` as the
-   string `"true"`).
+   string `"true"`). Rows come back oldest first.
 2. If the read reports any `restricted_columns`, refuse, naming the columns
    and the permission to grant (View, or View history). A row built from a
    partial read would blank the hidden columns.
-3. The **base row** is the latest row dated on or before the new effective
-   date. No such row → refused: there is nothing to carry forward.
-4. A row already dated that day (and, for work, at that site) → refused:
-   changing an existing row is out of scope.
-5. Any row dated after the new one → a `needs_input` question naming it and
-   what it still says ("A work row from 2027-01-01 still has the title
-   'Analyst', so this change lasts until then. Go ahead?"), answered with
-   `allow_later_rows: true`.
-6. Build the new row: copy the base row; drop `id`, `effectiveDate`,
-   `endEffectiveDate`, `activeEffectiveDate`, `isCurrent`, `canBeDeleted`,
-   `change`, `creationDate`, `modificationDate`, `workChangeType`,
-   `humanReadable`, `changedBy`, and calculated employment columns (`fte`,
-   `weeklyHours`, **verify**); reduce `reportsTo` to `{id}`; keep `siteId`
-   (drop the display `site` if HiBob refuses both, **verify**). Lay the
-   changes over it, merging nested objects such as `customColumns` key by
-   key, then set `effectiveDate` and `reason`.
+3. The **base row** is the latest row dated before the new effective date.
+   The row marked `isCurrent` is not used: a row may be added in the past or
+   the future. Two rows sharing that latest date → refused (no single row to
+   copy). No such row → refused: there is nothing to carry forward. The one
+   exception is a salary table with no earlier row: the first salary row has
+   no base, so the changes must give the amount with its currency and the
+   pay period, or a question asks for them.
+4. A row already dated that day, at any site → refused: changing an existing
+   row is out of scope.
+5. Any row dated after the new one that holds a different value in a column
+   being changed → a `needs_input` question naming it and what it still says
+   ("A work row from 2027-01-01 still has the title 'Analyst', so this
+   change lasts until then. Go ahead?"), answered with
+   `allow_later_rows: true`. A later row that already holds the new value
+   needs no question.
+6. Build the new row: copy every non-null column of the base row except
+   bookkeeping (`id`, `effectiveDate`, `endEffectiveDate`,
+   `activeEffectiveDate`, `isCurrent`, `canBeDeleted`, `change`,
+   `creationDate`, `modificationDate`, `workChangeType`, `humanReadable`,
+   `changedBy`); reduce `reportsTo` to `{id}`; send the ID beside the label
+   it describes, not both: drop `site` when `siteId` is present,
+   `calendarName` when `calendarId` is, `standardWorkingPattern` when its
+   ID is. Derived employment columns (`fte`, `weeklyHours`,
+   `hoursInDayNotWorked`, the actual and site working patterns) are copied
+   as read, so the new row stays consistent with its base whether HiBob
+   recomputes or stores them; they cannot be changed here. Custom columns
+   are sent in both shapes HiBob is known to take: nested under
+   `customColumns` as its reference documents, and as top-level `column_*`
+   keys as justparent's integration sends them. Lay the changes over the
+   copy, merging nested objects key by key, then set `effectiveDate` and,
+   on work and employment rows, `reason` (HiBob's salary table has no reason
+   column; the result says the reason was not recorded there).
+7. A bare amount on a salary change takes its currency from the base row;
+   with no base row a question asks for it. `null` is still refused.
+8. If every changed column already holds the requested value in the base row,
+   no row is added and the result says so.
+
+### Findings from the demo tenant (2026-10-07)
+
+From bulk reads of 119 employees' rows and a restoring write probe:
+
+- Rows come back oldest first, with `isCurrent` and `endEffectiveDate`; no
+  employee had two rows on one date.
+- Work: `title` and `department` are strings (list item IDs, equal to the
+  names for built-in lists), `siteId` an integer beside `site` (the name),
+  `reportsTo` an object with a string `id` and display fields; no custom
+  columns anywhere.
+- Employment: `contract` is "Full time" (not the documented "Full-Time");
+  `calendarId` is an integer; type, salary pay type, FLSA code and working
+  patterns were null; `fte`, `weeklyHours`, `hoursInDayNotWorked`,
+  `actualWorkingPattern` and `siteWorkingPattern` were always present.
+- Salary: `base {value, currency}`, `payPeriod`, `payFrequency`; 44 of 119
+  employees had rows; the salary read is limited to 10 a minute.
+- List IDs are integers for `site` and `calendar`, strings elsewhere; list
+  names are case-sensitive.
 
 ### A record
 
@@ -271,8 +314,8 @@ where HiBob returns one, otherwise by matching the values sent.
   plain-field `PUT`, start date, email last (it sends an invitation). Each is
   sent once. If one fails, the rest are not sent and the response is
   `partial`. Nothing is rolled back.
-- **Table rows** are read back and found by effective date (and site for
-  work); every column sent is compared.
+- **Table rows** are read back and found by effective date; every column
+  sent is compared except `reason` and the derived employment columns.
 - **Plain fields** are read back with `POST /people/{id}`. A mismatch is
   read again, up to three reads over about 15 seconds, because HiBob both
   lags and silently drops fields the service user cannot edit. Fields that
