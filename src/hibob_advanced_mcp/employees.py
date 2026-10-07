@@ -18,10 +18,13 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
+from .cache import NamedListCache
 from .client import HiBobClient, get_client
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
 from .list_values import named_list_items, resolve_list_values
+from .people_api import custom_tables, people_fields
+from .people_fields import describe_field
 from .references import NOTHING_WRITTEN
 from .tasks import find_employees
 
@@ -108,8 +111,83 @@ def register_employee_tools(
     *,
     read_only: bool = False,
     client_factory: Callable[[], HiBobClient] = get_client,
+    list_cache: NamedListCache | None = None,
 ) -> None:
-    """Register the employee lifecycle tools; none exist when ``read_only``."""
+    """Register the employee tools; the write tools are omitted when ``read_only``."""
+    cache = list_cache if list_cache is not None else NamedListCache()
+    read_annotations = dict(
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=True,
+    )
+
+    @mcp.tool(
+        name="hibob_list_employee_fields",
+        annotations=ToolAnnotations(
+            title="List HiBob employee fields", **read_annotations
+        ),
+    )
+    async def hibob_list_employee_fields(
+        search: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Keep only fields whose label, ID or category contains this "
+                    "text, and custom tables whose name or columns do."
+                )
+            ),
+        ] = None,
+    ) -> str:
+        """List employee fields and custom tables, and how each is changed.
+
+        Each field gives its id, label, category, type, list (the named list
+        its values come from) and "write": "field" (changed directly),
+        "dated" with "table" (work, employment or salary: changed from an
+        effective date), "email" or "start_date" (their own endpoints), or
+        "not_writable" with a "reason". Custom tables come with their columns
+        and which are required.
+
+        Returns:
+            str: JSON {"count": N, "fields": [...], "custom_tables": [...]},
+            with "custom_tables_error" if they could not be read, or an
+            error beginning "Error:".
+        """
+        try:
+            api = client_factory()
+            fields = await people_fields(api, cache)
+            result: dict[str, Any] = {}
+            try:
+                tables = await custom_tables(api, cache)
+            except Exception as exc:
+                tables = []
+                result["custom_tables_error"] = format_exception(exc)
+            text = (search or "").strip().lower()
+            if text:
+                fields = [
+                    f
+                    for f in fields
+                    if text in f.label.lower()
+                    or text in f.id.lower()
+                    or text in f.category.lower()
+                ]
+                tables = [
+                    t
+                    for t in tables
+                    if text in t["name"].lower()
+                    or any(text in c["label"].lower() for c in t["columns"])
+                ]
+            result.update(
+                {
+                    "count": len(fields),
+                    "fields": [describe_field(f) for f in fields],
+                    "custom_tables": tables,
+                }
+            )
+            return _dump(result)
+        except Exception as exc:
+            return format_exception(exc)
+
     if read_only:
         return
 

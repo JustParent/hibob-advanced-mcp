@@ -17,6 +17,8 @@ It runs over stdio, is installable with `uvx`, and authenticates with a HiBob **
 
    To terminate employees with `hibob_terminate_employee`, grant **People's data → People's fields → Edit** on the **Lifecycle** category, plus **View** on employees' names and work emails so the employee can be looked up.
 
+   Reading and changing employee data (`hibob_get_employee`, `hibob_update_employee`) needs **People's data → People's fields**: **View** on the categories read, **Edit** on those changed, and **View history** to read a table's earlier rows. HiBob skips fields the service user may not edit without saying so; the update tool reads every change back to catch that.
+
    Reports need **Features → Reports → View reports according to people's data access rights**, plus access to the employees and fields included in each report. Reports containing formulas also need **Features → Formulas in Grids → View formulas in grids**. Reports do not require the workforce planning permission.
 
    Service users have no permissions by default. The server identifies the relevant permission when an endpoint denies access.
@@ -31,7 +33,7 @@ Read-only workforce planning use still needs the same workforce planning grant. 
 | `HIBOB_SERVICE_USER_ID` | yes | Service user ID (the Basic auth username). |
 | `HIBOB_SERVICE_USER_TOKEN` | yes | Service user token (the Basic auth password). |
 | `HIBOB_API_HOST` | no | Defaults to production (`api.hibob.com`). Set `api.sandbox.hibob.com` for HiBob's sandbox. A pasted URL such as `https://api.sandbox.hibob.com/v1` is accepted; only the hostname is used. |
-| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the eighteen read tools; the eleven write tools are not exposed at all. |
+| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the nineteen read tools; the eleven write tools are not exposed at all. |
 
 Standard proxy variables (`HTTPS_PROXY`, `ALL_PROXY`) are honoured. A SOCKS5 proxy needs the optional `socks` extra — see the install line below.
 
@@ -126,6 +128,7 @@ Field IDs are passed as flat mappings, for example `{"/position/fte": 100}`. The
 | `hibob_list_open_tasks` | `GET /tasks` (HiBob caps this at 5,000 tasks, with no pagination) | — |
 | `hibob_find_employee` | `POST /people/search` on work email; returns each match's ID, name and email | — |
 | `hibob_get_employee_tasks` | `GET /tasks/people/{id}`, optionally filtered to open or closed | — |
+| `hibob_list_employee_fields` | `GET /company/people/fields` and `GET /people/custom-tables/metadata`, cached | 50/min |
 | `hibob_list_reports` | `GET /company/reports`, permission-filtered saved report metadata | 20/min |
 | `hibob_download_report` | `GET /company/reports/{reportId}/download`, JSON/CSV/XLSX | 20/min |
 | `hibob_generate_report` | `GET /company/reports/{reportId}/download-async`, CSV/XLSX | 20/min |

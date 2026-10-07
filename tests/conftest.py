@@ -84,7 +84,12 @@ def server_factory(client: HiBobClient):
             list_cache=list_cache,
         )
         register_tasks_tools(mcp, read_only=read_only, client_factory=lambda: client)
-        register_employee_tools(mcp, read_only=read_only, client_factory=lambda: client)
+        register_employee_tools(
+            mcp,
+            read_only=read_only,
+            client_factory=lambda: client,
+            list_cache=list_cache,
+        )
         register_reports_tools(mcp, client_factory=lambda: client)
         return mcp
 
