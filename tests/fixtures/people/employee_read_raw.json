@@ -1,0 +1,40 @@
+{
+  "/internal/status": {
+    "value": "<text>"
+  },
+  "/root/displayName": {
+    "value": "<text>"
+  },
+  "/root/email": {
+    "value": "person@example.com"
+  },
+  "/root/firstName": {
+    "value": "<text>"
+  },
+  "/root/id": {
+    "value": "<text>"
+  },
+  "/work/site": {
+    "value": "<text>"
+  },
+  "/work/startDate": {
+    "value": "2026-09-06"
+  },
+  "displayName": "<text>",
+  "email": "person@example.com",
+  "firstName": "<text>",
+  "home": {
+    "mobilePhone": null
+  },
+  "id": "3980342332732998349",
+  "internal": {
+    "status": "<text>"
+  },
+  "work": {
+    "department": null,
+    "reportsTo": null,
+    "site": "<text>",
+    "startDate": "2026-09-06",
+    "title": null
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "employees": [
+    {
+      "/root/displayName": {
+        "value": "<text>"
+      },
+      "/root/email": {
+        "value": "person@example.com"
+      },
+      "/root/id": {
+        "value": "<text>"
+      },
+      "/work/title": {
+        "value": "<text>"
+      },
+      "displayName": "<text>",
+      "email": "person@example.com",
+      "humanReadable": {
+        "displayName": "<text>",
+        "email": "person@example.com",
+        "id": "3987598587553907167",
+        "work": {
+          "title": "<text>"
+        }
+      },
+      "id": "3987598587553907167",
+      "work": {
+        "title": "<text>"
+      }
+    },
+    {
+      "/root/displayName": {
+        "value": "<text>"
+      },
+      "/root/email": {
+        "value": "person@example.com"
+      },
+      "/root/id": {
+        "value": "<text>"
+      },
+      "/work/title": {
+        "value": "<text>"
+      },
+      "displayName": "<text>",
+      "email": "person@example.com",
+      "humanReadable": {
+        "displayName": "<text>",
+        "email": "person@example.com",
+        "id": "3980342572051595995",
+        "work": {
+          "title": "<text>"
+        }
+      },
+      "id": "3980342572051595995",
+      "work": {
+        "title": "<text>"
+      }
+    },
+    {
+      "/root/displayName": {
+        "value": "<text>"
+      },
+      "/root/email": {
+        "value": "person@example.com"
+      },
+      "/root/id": {
+        "value": "<text>"
+      },
+      "/work/title": {
+        "value": "<text>"
+      },
+      "displayName": "<text>",
+      "email": "person@example.com",
+      "humanReadable": {
+        "displayName": "<text>",
+        "email": "person@example.com",
+        "id": "3991677493793784607",
+        "work": {
+          "title": "<text>"
+        }
+      },
+      "id": "3991677493793784607",
+      "work": {
+        "title": "<text>"
+      }
+    }
+  ]
+}

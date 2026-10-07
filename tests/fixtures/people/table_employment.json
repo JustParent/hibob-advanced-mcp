@@ -1,0 +1,61 @@
+{
+  "values": [
+    {
+      "activeEffectiveDate": "2026-09-06",
+      "actualWorkingPattern": {
+        "days": {
+          "friday": 1,
+          "monday": 1,
+          "saturday": 1,
+          "sunday": 1,
+          "thursday": 1,
+          "tuesday": 1,
+          "wednesday": 1
+        },
+        "hoursPerDay": 1,
+        "workingPatternId": 1,
+        "workingPatternType": "<text>"
+      },
+      "calendarId": null,
+      "calendarName": null,
+      "canBeDeleted": true,
+      "change": {
+        "changedBy": null,
+        "changedById": "<text>",
+        "reason": null
+      },
+      "contract": "Full time",
+      "creationDate": null,
+      "customColumns": {},
+      "effectiveDate": "2026-09-06",
+      "endEffectiveDate": null,
+      "flsaCode": null,
+      "fte": 1,
+      "hoursInDayNotWorked": 1,
+      "id": 1000020260906,
+      "isCurrent": true,
+      "modificationDate": "2026-09-06",
+      "personalWorkingPatternType": null,
+      "salaryPayType": null,
+      "siteWorkingPattern": {
+        "days": {
+          "friday": 1,
+          "monday": 1,
+          "saturday": 1,
+          "sunday": 1,
+          "thursday": 1,
+          "tuesday": 1,
+          "wednesday": 1
+        },
+        "hoursPerDay": 1,
+        "workingPatternId": 1,
+        "workingPatternType": "<text>"
+      },
+      "standardWorkingPattern": null,
+      "standardWorkingPatternId": null,
+      "type": null,
+      "weeklyHours": 1,
+      "workingPattern": null
+    }
+  ]
+}

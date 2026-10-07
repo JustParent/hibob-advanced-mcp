@@ -103,10 +103,21 @@ READ_FIELDS = IDENTITY_FIELDS + [
     "internal.status",
 ]
 KEEP_KEYS = {
-    "id", "effectiveDate", "endEffectiveDate", "activeEffectiveDate",
-    "isCurrent", "canBeDeleted", "creationDate", "modificationDate",
-    "workChangeType", "siteId", "currency", "payPeriod", "payFrequency",
-    "contract", "type",
+    "id",
+    "effectiveDate",
+    "endEffectiveDate",
+    "activeEffectiveDate",
+    "isCurrent",
+    "canBeDeleted",
+    "creationDate",
+    "modificationDate",
+    "workChangeType",
+    "siteId",
+    "currency",
+    "payPeriod",
+    "payFrequency",
+    "contract",
+    "type",
 }
 _DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
@@ -150,7 +161,10 @@ def main() -> None:
     host = host.split("/")[0]
     client = httpx.Client(
         base_url=f"https://{host}/v1",
-        auth=(env["HIBOB_SERVICE_USER_ID"] or "", env["HIBOB_SERVICE_USER_TOKEN"] or ""),
+        auth=(
+            env["HIBOB_SERVICE_USER_ID"] or "",
+            env["HIBOB_SERVICE_USER_TOKEN"] or "",
+        ),
         headers={"Accept": "application/json"},
         timeout=60,
         event_hooks={"request": [guard]},
@@ -170,16 +184,21 @@ def main() -> None:
     search = client.post(
         "/people/search", json={"fields": IDENTITY_FIELDS, "humanReadable": "APPEND"}
     )
-    notes.append(f"- people search without filters: {search.status_code} {search.text[:200] if search.is_error else ''}")
+    notes.append(
+        f"- people search without filters: {search.status_code} {search.text[:200] if search.is_error else ''}"
+    )
     search.raise_for_status()
     employees = search.json().get("employees", [])
     save("directory.json", scrub({"employees": employees[:3]}))
     employee_id = str(employees[0]["id"])
 
     read = client.post(
-        f"/people/{employee_id}", json={"fields": READ_FIELDS, "humanReadable": "APPEND"}
+        f"/people/{employee_id}",
+        json={"fields": READ_FIELDS, "humanReadable": "APPEND"},
     )
-    notes.append(f"- POST /people/{{id}}: {read.status_code}; top-level keys: {sorted(read.json())[:20] if read.is_success else read.text[:200]}")
+    notes.append(
+        f"- POST /people/{{id}}: {read.status_code}; top-level keys: {sorted(read.json())[:20] if read.is_success else read.text[:200]}"
+    )
     if read.is_success:
         save("employee_read.json", scrub(read.json()))
 
@@ -187,15 +206,26 @@ def main() -> None:
         response = client.get(
             f"/people/{employee_id}/{table}", params={"includeHumanReadable": "true"}
         )
-        notes.append(f"- GET /people/{{id}}/{table}: {response.status_code} {response.headers.get('content-type')}")
+        notes.append(
+            f"- GET /people/{{id}}/{table}: {response.status_code} {response.headers.get('content-type')}"
+        )
         if response.is_success and response.content:
             save(f"table_{table}.json", scrub(response.json()))
 
-    for bulk in ("entitlement", "entitlements", "deduction", "deductions", "dependents", "right-to-work"):
+    for bulk in (
+        "entitlement",
+        "entitlements",
+        "deduction",
+        "deductions",
+        "dependents",
+        "right-to-work",
+    ):
         response = client.get(
             f"/bulk/people/{bulk}", params={"employeeIds": employee_id, "limit": 1}
         )
-        notes.append(f"- GET /bulk/people/{bulk}: {response.status_code} {response.headers.get('content-type')}")
+        notes.append(
+            f"- GET /bulk/people/{bulk}: {response.status_code} {response.headers.get('content-type')}"
+        )
 
     (OUT / "observations.md").write_text("\n".join(notes) + "\n")
     print("\n".join(notes))
@@ -476,16 +506,33 @@ FIELDS = [
     _field("root.firstName", "First name", "Basic info", "text"),
     _field("home.mobilePhone", "Mobile phone", "Home", "text"),
     _field("work.title", "Job title", "Work", "list", list_id="title", historical=True),
-    _field("work.department", "Department", "Work", "list", list_id="department", historical=True),
+    _field(
+        "work.department",
+        "Department",
+        "Work",
+        "list",
+        list_id="department",
+        historical=True,
+    ),
     _field("work.site", "Site", "Work", "list", list_id="site", historical=True),
-    _field("work.reportsTo", "Reports to", "Work", "employee-reference", historical=True),
+    _field(
+        "work.reportsTo", "Reports to", "Work", "employee-reference", historical=True
+    ),
     _field("work.startDate", "Start date", "Work", "date"),
     _field("internal.status", "Status", "Internal", "list", list_id="status"),
     _field("address.city", "City", "Address", "text", historical=True),
-    _field("payroll.salary.payment", "Base salary", "Payroll", "currency", historical=True),
+    _field(
+        "payroll.salary.payment", "Base salary", "Payroll", "currency", historical=True
+    ),
     _field("work.custom.field_100", "Shirt size", "Work", "list", list_id="shirtSize"),
     _field("home.custom.field_200", "Start date", "Home", "date"),
-    _field("about.custom.field_300", "Languages", "About", "multi-list", list_id="languages"),
+    _field(
+        "about.custom.field_300",
+        "Languages",
+        "About",
+        "multi-list",
+        list_id="languages",
+    ),
     _field("work.custom.field_400", "Buddy", "Work", "employee-reference"),
     _field("financial.custom.field_500", "Bonus target", "Financial", "currency"),
     _field("personal.custom.field_600", "Passport scan", "Personal", "document"),
@@ -507,7 +554,12 @@ CUSTOM_TABLES = {
                     "typeData": {"listId": "certs"},
                     "mandatory": True,
                 },
-                {"id": "column_2", "name": "Expires", "type": "date", "mandatory": False},
+                {
+                    "id": "column_2",
+                    "name": "Expires",
+                    "type": "date",
+                    "mandatory": False,
+                },
             ],
         }
     ]
@@ -651,7 +703,12 @@ def test_custom_tables_keep_columns_and_required_flags() -> None:
                     "required": True,
                     "list": "certs",
                 },
-                {"id": "column_2", "label": "Expires", "type": "date", "required": False},
+                {
+                    "id": "column_2",
+                    "label": "Expires",
+                    "type": "date",
+                    "required": False,
+                },
             ],
         }
     ]
@@ -683,7 +740,9 @@ def test_read_field_missing_or_not_a_record() -> None:
 
 @pytest.mark.skipif(not REAL_FIELDS.exists(), reason="sandbox fixture not captured")
 def test_real_metadata_fixture() -> None:
-    fields = {f.id: f for f in normalize_people_fields(json.loads(REAL_FIELDS.read_text()))}
+    fields = {
+        f.id: f for f in normalize_people_fields(json.loads(REAL_FIELDS.read_text()))
+    }
     assert route_for(fields["work.title"]).table == "work"
     assert route_for(fields["root.email"]).kind == "email"
     assert all(f.label for f in fields.values())
@@ -1095,7 +1154,10 @@ class FakePeople:
     """
 
     def __init__(self, mock_api: respx.MockRouter) -> None:
-        self.records = {EMPLOYEE_ID: copy.deepcopy(JANE), MANAGER_ID: copy.deepcopy(SAM)}
+        self.records = {
+            EMPLOYEE_ID: copy.deepcopy(JANE),
+            MANAGER_ID: copy.deepcopy(SAM),
+        }
         self.writes: list[str] = []
         self.apply_writes = True
         self.put_status = 200
@@ -1221,7 +1283,10 @@ async def test_a_shared_name_is_ambiguous_with_both_candidates(
     match = await find_employee(client, NamedListCache(), "Alex Lee")
     assert match.employee is None
     assert match.ambiguous is True
-    assert {c["email"] for c in match.candidates} == {"alex.lee@x.com", "alex.lee2@x.com"}
+    assert {c["email"] for c in match.candidates} == {
+        "alex.lee@x.com",
+        "alex.lee2@x.com",
+    }
     assert "alex.lee2@x.com" in describe_candidates(match.candidates)
 
 
@@ -1314,16 +1379,14 @@ Expected: collection error, `ModuleNotFoundError: No module named 'hibob_advance
 Add to `NamedListCache` in `src/hibob_advanced_mcp/cache.py` (and `from collections.abc import Awaitable, Callable`):
 
 ```python
-    async def get_or_fetch(
-        self, key: CacheKey, fetch: Callable[[], Awaitable[Any]]
-    ) -> Any:
-        """The cached value for ``key``, fetching and caching it if absent."""
-        hit = self.get(key)
-        if hit is not None:
-            return hit
-        value = await fetch()
-        self.set(key, value)
-        return value
+async def get_or_fetch(self, key: CacheKey, fetch: Callable[[], Awaitable[Any]]) -> Any:
+    """The cached value for ``key``, fetching and caching it if absent."""
+    hit = self.get(key)
+    if hit is not None:
+        return hit
+    value = await fetch()
+    self.set(key, value)
+    return value
 ```
 
 Create `src/hibob_advanced_mcp/people_api.py`:
@@ -1372,21 +1435,27 @@ HISTORY_TABLES = {
 }
 
 
-async def people_fields(client: HiBobClient, cache: NamedListCache) -> list[PeopleField]:
+async def people_fields(
+    client: HiBobClient, cache: NamedListCache
+) -> list[PeopleField]:
     async def fetch() -> list[PeopleField]:
         return normalize_people_fields(await client.get(FIELDS_METADATA_PATH))
 
     return await cache.get_or_fetch(("people:fields", False), fetch)
 
 
-async def custom_tables(client: HiBobClient, cache: NamedListCache) -> list[dict[str, Any]]:
+async def custom_tables(
+    client: HiBobClient, cache: NamedListCache
+) -> list[dict[str, Any]]:
     async def fetch() -> list[dict[str, Any]]:
         return normalize_custom_tables(await client.get(CUSTOM_TABLES_METADATA_PATH))
 
     return await cache.get_or_fetch(("people:custom-tables", False), fetch)
 
 
-async def named_list(client: HiBobClient, cache: NamedListCache, list_id: str) -> list[Any]:
+async def named_list(
+    client: HiBobClient, cache: NamedListCache, list_id: str
+) -> list[Any]:
     async def fetch() -> list[Any]:
         path = NAMED_LIST_PATH.format(name=quote(list_id, safe=""))
         return named_list_items(await client.get(path))
@@ -1439,7 +1508,11 @@ async def read_table(
     restricted: dict[str, Any] = {}
     if isinstance(payload, dict):
         values = payload.get("values")
-        rows = [row for row in values if isinstance(row, dict)] if isinstance(values, list) else []
+        rows = (
+            [row for row in values if isinstance(row, dict)]
+            if isinstance(values, list)
+            else []
+        )
         if isinstance(payload.get("restricted_columns"), dict):
             restricted = payload["restricted_columns"]
     rows.sort(key=lambda row: str(row.get("effectiveDate") or ""), reverse=True)
@@ -1489,7 +1562,11 @@ def identity(record: Any) -> dict[str, Any] | None:
     name, _ = read_field(record, "root.displayName")
     email, _ = read_field(record, "root.email")
     title, title_display = read_field(record, "work.title")
-    found: dict[str, Any] = {"id": normalize_id(employee_id), "name": name, "email": email}
+    found: dict[str, Any] = {
+        "id": normalize_id(employee_id),
+        "name": name,
+        "email": email,
+    }
     if title_display or title:
         found["title"] = title_display or title
     return found
@@ -1506,7 +1583,9 @@ def _squash(text: Any) -> str:
     return " ".join(str(text or "").lower().split())
 
 
-async def _directory(client: HiBobClient, cache: NamedListCache) -> list[dict[str, Any]]:
+async def _directory(
+    client: HiBobClient, cache: NamedListCache
+) -> list[dict[str, Any]]:
     async def fetch() -> list[dict[str, Any]]:
         payload = await client.search(
             PEOPLE_SEARCH_PATH, {"fields": IDENTITY_FIELDS, "humanReadable": "APPEND"}
@@ -1526,7 +1605,10 @@ async def find_employee(
         raise ValueError("employee must not be empty.")
     if "@" in text or text.isdigit():
         record = await read_employee(
-            client, text.lower() if "@" in text else text, IDENTITY_FIELDS, human_readable=True
+            client,
+            text.lower() if "@" in text else text,
+            IDENTITY_FIELDS,
+            human_readable=True,
         )
         return EmployeeMatch(identity(record) if record else None)
     people = await _directory(client, cache)
@@ -1537,7 +1619,9 @@ async def find_employee(
     if exact:
         return EmployeeMatch(None, exact, ambiguous=True)
     by_id = {person["id"]: person for person in people}
-    leaves = [{"id": person["id"], "name": person.get("name") or ""} for person in people]
+    leaves = [
+        {"id": person["id"], "name": person.get("name") or ""} for person in people
+    ]
     near = rank_matches(leaves, text, require_all=True)[:MAX_CANDIDATES]
     return EmployeeMatch(None, [by_id[leaf["id"]] for leaf in near])
 ```
@@ -1628,7 +1712,9 @@ async def test_list_fields_is_available_in_read_only_mode(
     mock_api, server_factory
 ) -> None:
     FakePeople(mock_api)
-    text = await call_tool(server_factory(read_only=True), "hibob_list_employee_fields", {})
+    text = await call_tool(
+        server_factory(read_only=True), "hibob_list_employee_fields", {}
+    )
     assert not text.startswith("Error:")
 ```
 
@@ -1832,7 +1918,9 @@ async def test_get_employee_unknown_or_ambiguous_field_is_an_error(
     assert "Job titel" in text
 
 
-async def test_get_employee_ambiguous_name_lists_candidates(mock_api, mcp_server) -> None:
+async def test_get_employee_ambiguous_name_lists_candidates(
+    mock_api, mcp_server
+) -> None:
     FakePeople(mock_api)
     text = await call_tool(mcp_server, "hibob_get_employee", {"employee": "Alex Lee"})
     assert text.startswith("Error:")
@@ -1938,7 +2026,9 @@ def _placeholder(field_id: str) -> PeopleField:
     )
 
 
-def _fields_to_read(known: list[PeopleField], wanted: list[str] | None) -> list[PeopleField]:
+def _fields_to_read(
+    known: list[PeopleField], wanted: list[str] | None
+) -> list[PeopleField]:
     if not wanted:
         by_id = {field.id: field for field in known}
         return [by_id.get(fid) or _placeholder(fid) for fid in DEFAULT_EMPLOYEE_FIELDS]
@@ -1989,68 +2079,77 @@ async def _history(
 Inside `register_employee_tools`, after `hibob_list_employee_fields` and before `if read_only: return`:
 
 ```python
-    @mcp.tool(
-        name="hibob_get_employee",
-        annotations=ToolAnnotations(title="Get a HiBob employee's data", **read_annotations),
-    )
-    async def hibob_get_employee(
-        employee: Annotated[
-            str | int,
-            Field(description="The employee, by HiBob employee ID, work email or display name."),
-        ],
-        fields: Annotated[
-            list[str] | None,
-            Field(
-                description=(
-                    "Fields to read, by label ('Job title') or ID ('work.title'). "
-                    "Omit for name, email, title, department, site, manager, "
-                    "start date and status."
-                )
-            ),
-        ] = None,
-        history: Annotated[
-            list[str] | None,
-            Field(
-                description=(
-                    "Tables whose rows to include: work, employment, salary, "
-                    "lifecycle, variable pay, equity, training, bank accounts, "
-                    "or a custom table's name or ID."
-                )
-            ),
-        ] = None,
-    ) -> str:
-        """Read an employee's current values and, optionally, table history.
-
-        Each field comes back as {"field", "id", "value", "display"}: "value"
-        is what HiBob stores (list item IDs, employee IDs), "display" its
-        label where HiBob gives one. Inactive employees are found by ID or
-        email; names match active employees only. Each table in "history"
-        gives its rows newest first and any "restricted_columns" the service
-        user may not see, or an "error" for that table alone.
-
-        Returns:
-            str: JSON {"employee": {...}, "fields": [...], "history"?: {...}},
-            or an error beginning "Error:".
-        """
-        try:
-            api = client_factory()
-            person = require_employee(await find_employee(api, cache, employee), employee)
-            wanted = _fields_to_read(await people_fields(api, cache), fields)
-            record = await read_employee(
-                api, person["id"], [f.id for f in wanted], human_readable=True
+@mcp.tool(
+    name="hibob_get_employee",
+    annotations=ToolAnnotations(
+        title="Get a HiBob employee's data", **read_annotations
+    ),
+)
+async def hibob_get_employee(
+    employee: Annotated[
+        str | int,
+        Field(
+            description="The employee, by HiBob employee ID, work email or display name."
+        ),
+    ],
+    fields: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "Fields to read, by label ('Job title') or ID ('work.title'). "
+                "Omit for name, email, title, department, site, manager, "
+                "start date and status."
             )
-            values = []
-            for f in wanted:
-                value, display = read_field(record, f.id, f.json_path)
-                values.append(
-                    {"field": f.qualified_label, "id": f.id, "value": value, "display": display}
-                )
-            result: dict[str, Any] = {"employee": person, "fields": values}
-            if history:
-                result["history"] = await _history(api, cache, person["id"], history)
-            return _dump(result)
-        except Exception as exc:
-            return format_exception(exc)
+        ),
+    ] = None,
+    history: Annotated[
+        list[str] | None,
+        Field(
+            description=(
+                "Tables whose rows to include: work, employment, salary, "
+                "lifecycle, variable pay, equity, training, bank accounts, "
+                "or a custom table's name or ID."
+            )
+        ),
+    ] = None,
+) -> str:
+    """Read an employee's current values and, optionally, table history.
+
+    Each field comes back as {"field", "id", "value", "display"}: "value"
+    is what HiBob stores (list item IDs, employee IDs), "display" its
+    label where HiBob gives one. Inactive employees are found by ID or
+    email; names match active employees only. Each table in "history"
+    gives its rows newest first and any "restricted_columns" the service
+    user may not see, or an "error" for that table alone.
+
+    Returns:
+        str: JSON {"employee": {...}, "fields": [...], "history"?: {...}},
+        or an error beginning "Error:".
+    """
+    try:
+        api = client_factory()
+        person = require_employee(await find_employee(api, cache, employee), employee)
+        wanted = _fields_to_read(await people_fields(api, cache), fields)
+        record = await read_employee(
+            api, person["id"], [f.id for f in wanted], human_readable=True
+        )
+        values = []
+        for f in wanted:
+            value, display = read_field(record, f.id, f.json_path)
+            values.append(
+                {
+                    "field": f.qualified_label,
+                    "id": f.id,
+                    "value": value,
+                    "display": display,
+                }
+            )
+        result: dict[str, Any] = {"employee": person, "fields": values}
+        if history:
+            result["history"] = await _history(api, cache, person["id"], history)
+        return _dump(result)
+    except Exception as exc:
+        return format_exception(exc)
 ```
 
 In `README.md`: Read table row
@@ -2174,9 +2273,17 @@ def test_put_body_nests_by_path_with_root_fields_at_the_top() -> None:
         ("M", "M", True),
         (12, 12.0, True),
         (12, "12", True),
-        ("3332883884017713999", {"id": "3332883884017713999", "email": "s@x.com"}, True),
+        (
+            "3332883884017713999",
+            {"id": "3332883884017713999", "email": "s@x.com"},
+            True,
+        ),
         (["1", "2"], ["2", "1"], True),
-        ({"value": 5000, "currency": "GBP"}, {"value": 5000.0, "currency": "GBP"}, True),
+        (
+            {"value": 5000, "currency": "GBP"},
+            {"value": 5000.0, "currency": "GBP"},
+            True,
+        ),
         ({"value": 5000, "currency": "GBP"}, {"value": 5000, "currency": "EUR"}, False),
         (True, True, True),
         (True, "true", True),
@@ -2302,7 +2409,9 @@ def coerce_value(field: PeopleField, value: Any) -> Any:
             return value
         if isinstance(value, str) and value.strip().lower() in _TRUE | _FALSE:
             return value.strip().lower() in _TRUE
-        raise ValueError(f"{field.qualified_label} must be true or false, not {value!r}.")
+        raise ValueError(
+            f"{field.qualified_label} must be true or false, not {value!r}."
+        )
     if kind in TEXT_TYPES:
         if isinstance(value, bool) or not isinstance(value, (str, int, float)):
             raise ValueError(f"{field.qualified_label} must be text, not {value!r}.")
@@ -2354,10 +2463,13 @@ def same_value(sent: Any, read: Any) -> bool:
         read = read["id"]
     if isinstance(sent, dict) and isinstance(read, dict):
         return normalize_id(sent.get("value")) == normalize_id(read.get("value")) and (
-            str(sent.get("currency", "")).upper() == str(read.get("currency", "")).upper()
+            str(sent.get("currency", "")).upper()
+            == str(read.get("currency", "")).upper()
         )
     if isinstance(sent, list) and isinstance(read, list):
-        return sorted(normalize_id(v) for v in sent) == sorted(normalize_id(v) for v in read)
+        return sorted(normalize_id(v) for v in sent) == sorted(
+            normalize_id(v) for v in read
+        )
     if isinstance(sent, bool):
         return str(sent).lower() == str(read).strip().lower()
     if sent is None or read is None:
@@ -2476,7 +2588,9 @@ async def test_questions_are_collected_and_nothing_is_written(
         "Work > Start date",
         "Home > Start date",
     }
-    assert "Work > Shirt size" in [c["label"] for c in by_key["Shirt sise"]["candidates"]]
+    assert "Work > Shirt size" in [
+        c["label"] for c in by_key["Shirt sise"]["candidates"]
+    ]
     assert {c["id"] for c in by_key["Shirt size"]["candidates"]} == {"L", "L2"}
     assert len(by_key["Buddy"]["candidates"]) == 2
     assert "currency" in by_key["Bonus target"]["question"]
@@ -2516,7 +2630,9 @@ async def test_refusals_write_nothing(mock_api, mcp_server, changes, expected) -
 
 async def test_unknown_employee_is_an_error(mock_api, mcp_server) -> None:
     FakePeople(mock_api)
-    text = await _update(mcp_server, employee="nobody@x.com", changes={"Mobile phone": "1"})
+    text = await _update(
+        mcp_server, employee="nobody@x.com", changes={"Mobile phone": "1"}
+    )
     assert text.startswith("Error:")
     assert "No employee found" in text
 
@@ -2651,8 +2767,12 @@ async def _resolve_value(
             )
         wanted = given if isinstance(given, list) else [given]
         if target.type != "multi-list" and len(wanted) != 1:
-            raise ValueError(f"{target.qualified_label} takes one value, not {given!r}.")
-        match = resolve_list_values(await named_list(api, cache, target.list_id), wanted)
+            raise ValueError(
+                f"{target.qualified_label} takes one value, not {given!r}."
+            )
+        match = resolve_list_values(
+            await named_list(api, cache, target.list_id), wanted
+        )
         if not match["complete"]:
             problem = (match["ambiguous"] or match["unmatched"])[0]
             raise NeedsInput(
@@ -2714,14 +2834,18 @@ async def _plan(
                         else f"Which field did you mean by {key!r}? "
                         "hibob_list_employee_fields lists them all."
                     ),
-                    "candidates": [{"id": f.id, "label": f.qualified_label} for f in offered],
+                    "candidates": [
+                        {"id": f.id, "label": f.qualified_label} for f in offered
+                    ],
                 }
             )
             continue
         target = matches[0]
         route = route_for(target)
         if route.kind == "not_writable":
-            plan.problems.append(f"{target.qualified_label} cannot be changed: {route.reason}.")
+            plan.problems.append(
+                f"{target.qualified_label} cannot be changed: {route.reason}."
+            )
             continue
         if route.kind == "dated":
             plan.problems.append(
@@ -2771,11 +2895,15 @@ def _applied(change: Change) -> dict[str, Any]:
     return entry
 
 
-async def _apply(api: HiBobClient, plan: Plan, reason: str | None, sleep: SleepFn) -> dict[str, Any]:
+async def _apply(
+    api: HiBobClient, plan: Plan, reason: str | None, sleep: SleepFn
+) -> dict[str, Any]:
     assert plan.employee is not None
     employee_id = quote(plan.employee["id"], safe="")
     body = put_body({c.field.json_path: c.value for c in plan.changes})
-    await api.request_response("PUT", PUT_PATH.format(employee_id=employee_id), json=body)
+    await api.request_response(
+        "PUT", PUT_PATH.format(employee_id=employee_id), json=body
+    )
     return {
         "status": "updated",
         "employee": plan.employee,
@@ -2803,7 +2931,9 @@ def register_update_tools(
     async def hibob_update_employee(
         employee: Annotated[
             str | int,
-            Field(description="The employee, by HiBob employee ID, work email or display name."),
+            Field(
+                description="The employee, by HiBob employee ID, work email or display name."
+            ),
         ],
         changes: Annotated[
             dict[str, Any],
@@ -2827,7 +2957,9 @@ def register_update_tools(
         ] = None,
         reason: Annotated[
             str | None,
-            Field(description="Why the change is made; recorded with a start-date change."),
+            Field(
+                description="Why the change is made; recorded with a start-date change."
+            ),
         ] = None,
     ) -> str:
         """Change an employee's data. Each write is sent once, never retried.
@@ -2934,35 +3066,36 @@ git commit -m "Add hibob_update_employee for plain fields"
 In `FakePeople.__init__` (tests/people_data.py), add:
 
 ```python
-        self.start_date_status = 200
-        self.email_status = 200
-        self.start_date = mock_api.post(f"/employees/{EMPLOYEE_ID}/start-date").mock(
-            side_effect=self._start_date
-        )
-        self.email = mock_api.put(f"/people/{EMPLOYEE_ID}/email").mock(
-            side_effect=self._email
-        )
+self.start_date_status = 200
+self.email_status = 200
+self.start_date = mock_api.post(f"/employees/{EMPLOYEE_ID}/start-date").mock(
+    side_effect=self._start_date
+)
+self.email = mock_api.put(f"/people/{EMPLOYEE_ID}/email").mock(side_effect=self._email)
 ```
 
 and methods:
 
 ```python
-    def _start_date(self, request: httpx.Request) -> httpx.Response:
-        self.writes.append("start date")
-        if self.start_date_status != 200:
-            return httpx.Response(self.start_date_status, json={"error": "Bad start date"})
-        self.records[EMPLOYEE_ID]["work"]["startDate"] = jsonlib.loads(request.content)["startDate"]
-        return httpx.Response(200)
+def _start_date(self, request: httpx.Request) -> httpx.Response:
+    self.writes.append("start date")
+    if self.start_date_status != 200:
+        return httpx.Response(self.start_date_status, json={"error": "Bad start date"})
+    self.records[EMPLOYEE_ID]["work"]["startDate"] = jsonlib.loads(request.content)[
+        "startDate"
+    ]
+    return httpx.Response(200)
 
-    def _email(self, request: httpx.Request) -> httpx.Response:
-        self.writes.append("email")
-        email = jsonlib.loads(request.content)["email"]
-        if email == self.records[EMPLOYEE_ID]["email"]:
-            return httpx.Response(304)
-        if self.email_status != 200:
-            return httpx.Response(self.email_status, json={})
-        self.records[EMPLOYEE_ID]["email"] = email
-        return httpx.Response(200)
+
+def _email(self, request: httpx.Request) -> httpx.Response:
+    self.writes.append("email")
+    email = jsonlib.loads(request.content)["email"]
+    if email == self.records[EMPLOYEE_ID]["email"]:
+        return httpx.Response(304)
+    if self.email_status != 200:
+        return httpx.Response(self.email_status, json={})
+    self.records[EMPLOYEE_ID]["email"] = email
+    return httpx.Response(200)
 ```
 
 - [ ] **Step 2: Write the failing tests**
@@ -2970,7 +3103,9 @@ and methods:
 Append to `tests/test_tools_employee_updates.py`:
 
 ```python
-async def test_writes_go_fields_then_start_date_then_email(mock_api, mcp_server) -> None:
+async def test_writes_go_fields_then_start_date_then_email(
+    mock_api, mcp_server
+) -> None:
     fake = FakePeople(mock_api)
     result = json.loads(
         await _update(
@@ -3004,12 +3139,16 @@ async def test_writes_go_fields_then_start_date_then_email(mock_api, mcp_server)
 async def test_applied_changes_say_what_they_replaced(mock_api, mcp_server) -> None:
     FakePeople(mock_api)
     result = json.loads(
-        await _update(mcp_server, employee=EMPLOYEE_ID, changes={"Shirt size": "Medium"})
+        await _update(
+            mcp_server, employee=EMPLOYEE_ID, changes={"Shirt size": "Medium"}
+        )
     )
     assert result["applied"][0]["from"] == "Large"
 
 
-async def test_a_later_failure_is_partial_and_stops_the_rest(mock_api, mcp_server) -> None:
+async def test_a_later_failure_is_partial_and_stops_the_rest(
+    mock_api, mcp_server
+) -> None:
     fake = FakePeople(mock_api)
     fake.start_date_status = 400
     result = json.loads(
@@ -3043,7 +3182,9 @@ async def test_a_first_failure_is_an_error(mock_api, mcp_server) -> None:
     assert fake.writes == ["fields"]
 
 
-async def test_a_denied_write_names_the_categories_to_grant(mock_api, mcp_server) -> None:
+async def test_a_denied_write_names_the_categories_to_grant(
+    mock_api, mcp_server
+) -> None:
     fake = FakePeople(mock_api)
     fake.put_status = 403
     text = await _update(
@@ -3150,7 +3291,9 @@ def _applied(change: Change, before: dict[str, Any]) -> dict[str, Any]:
     return entry
 
 
-async def _current(api: HiBobClient, employee_id: str, changes: list[Change]) -> dict[str, Any]:
+async def _current(
+    api: HiBobClient, employee_id: str, changes: list[Change]
+) -> dict[str, Any]:
     """What each field holds before the change, as a label where HiBob has one."""
     try:
         record = await read_employee(
@@ -3166,7 +3309,11 @@ async def _current(api: HiBobClient, employee_id: str, changes: list[Change]) ->
 
 
 async def _send(
-    api: HiBobClient, employee_id: str, kind: str, group: list[Change], reason: str | None
+    api: HiBobClient,
+    employee_id: str,
+    kind: str,
+    group: list[Change],
+    reason: str | None,
 ) -> bool:
     """Send one write; False when HiBob reports it changed nothing (304)."""
     path_id = quote(employee_id, safe="")
@@ -3202,7 +3349,9 @@ async def _confirm(
         for delay in READ_BACK_DELAYS:
             if delay:
                 await sleep(delay)
-            record = await read_employee(api, employee_id, [c.field.id for c in pending])
+            record = await read_employee(
+                api, employee_id, [c.field.id for c in pending]
+            )
             still: list[Change] = []
             for change in pending:
                 value, _ = read_field(record, change.field.id, change.field.json_path)
@@ -3217,7 +3366,11 @@ async def _confirm(
         return
     categories = sorted({c.field.category for c in pending if c.field.category})
     result["unconfirmed"] = [
-        {"field": c.field.qualified_label, "sent": c.value, "read": seen.get(c.field.id)}
+        {
+            "field": c.field.qualified_label,
+            "sent": c.value,
+            "read": seen.get(c.field.id),
+        }
         for c in pending
     ]
     result["unconfirmed_note"] = (
@@ -3261,7 +3414,8 @@ async def _apply(
         "warnings": [],
     }
     groups = [
-        (kind, [c for c in plan.changes if c.route.kind == kind]) for kind in WRITE_ORDER
+        (kind, [c for c in plan.changes if c.route.kind == kind])
+        for kind in WRITE_ORDER
     ]
     groups = [(kind, group) for kind, group in groups if group]
     written: list[Change] = []
@@ -3415,7 +3569,10 @@ def main() -> None:
         raise SystemExit("Refusing: HIBOB_API_HOST is not the sandbox.")
     client = httpx.Client(
         base_url=f"https://{host}/v1",
-        auth=(env["HIBOB_SERVICE_USER_ID"] or "", env["HIBOB_SERVICE_USER_TOKEN"] or ""),
+        auth=(
+            env["HIBOB_SERVICE_USER_ID"] or "",
+            env["HIBOB_SERVICE_USER_TOKEN"] or "",
+        ),
         headers={"Accept": "application/json"},
         timeout=60,
         event_hooks={"request": [guard]},
@@ -3427,7 +3584,10 @@ def main() -> None:
     print("PUT:", put.status_code, put.text[:300])
     start = time.monotonic()
     while time.monotonic() - start < 30:
-        print(f"{time.monotonic() - start:5.1f}s:", json.dumps(read(client, employee_id, path)))
+        print(
+            f"{time.monotonic() - start:5.1f}s:",
+            json.dumps(read(client, employee_id, path)),
+        )
         time.sleep(2)
     restore = client.put(f"/people/{employee_id}", json=nest(path, original))
     print("restore PUT:", restore.status_code, restore.text[:300])

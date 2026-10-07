@@ -1,0 +1,3020 @@
+[
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.id",
+    "jsonPath": "id",
+    "name": "ID",
+    "type": "employee-reference",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.companyId",
+    "jsonPath": "companyId",
+    "name": "Company id",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.email",
+    "jsonPath": "email",
+    "name": "Email",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.firstName",
+    "jsonPath": "firstName",
+    "name": "First name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.surname",
+    "jsonPath": "surname",
+    "name": "Last name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.fullName",
+    "jsonPath": "fullName",
+    "name": "Full name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.displayName",
+    "jsonPath": "displayName",
+    "name": "Display name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.secondName",
+    "jsonPath": "secondName",
+    "name": "Middle name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.creationDateTime",
+    "jsonPath": "creationDateTime",
+    "name": "Creation timestamp",
+    "type": "time",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.coverImageUrl",
+    "jsonPath": "coverImageUrl",
+    "name": "Cover image URL",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "root",
+    "categoryDisplayName": "Basic info",
+    "categoryId": "root",
+    "description": null,
+    "historical": false,
+    "id": "root.avatarUrl",
+    "jsonPath": "avatarUrl",
+    "name": "Avatar URL",
+    "type": "avatar",
+    "typeData": {}
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": false,
+    "id": "personal.honorific",
+    "jsonPath": "personal.honorific",
+    "name": "Prefix",
+    "type": "list",
+    "typeData": {
+      "listId": "honorific"
+    }
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": false,
+    "id": "personal.pronouns",
+    "jsonPath": "personal.pronouns",
+    "name": "Pronouns",
+    "type": "list",
+    "typeData": {
+      "listId": "pronouns"
+    }
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": false,
+    "id": "personal.birthDate",
+    "jsonPath": "personal.birthDate",
+    "name": "Date of Birth",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": false,
+    "id": "personal.age",
+    "jsonPath": "personal.age",
+    "name": "Age",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": false,
+    "id": "personal.shortBirthDate",
+    "jsonPath": "personal.shortBirthDate",
+    "name": "Birthday",
+    "type": "short-date",
+    "typeData": {}
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": false,
+    "id": "personal.nationality",
+    "jsonPath": "personal.nationality",
+    "name": "Nationality",
+    "type": "multi-list",
+    "typeData": {
+      "listId": "nationalities"
+    }
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": true,
+    "id": "employee.disabilityStatus",
+    "jsonPath": "employee.disabilityStatus",
+    "name": "Disability status",
+    "type": "list",
+    "typeData": {
+      "listId": "disabilityStatus"
+    }
+  },
+  {
+    "category": "personal",
+    "categoryDisplayName": "Personal",
+    "categoryId": "personal",
+    "description": null,
+    "historical": false,
+    "id": "employee.veteranStatus",
+    "jsonPath": "employee.veteranStatus",
+    "name": "Veteran status",
+    "type": "multi-list",
+    "typeData": {
+      "listId": "veteranStatus"
+    }
+  },
+  {
+    "category": "personalContact",
+    "categoryDisplayName": "Personal contact details",
+    "categoryId": "personalContact",
+    "description": null,
+    "historical": false,
+    "id": "home.privateEmail",
+    "jsonPath": "home.privateEmail",
+    "name": "Personal email",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "personalContact",
+    "categoryDisplayName": "Personal contact details",
+    "categoryId": "personalContact",
+    "description": null,
+    "historical": false,
+    "id": "home.privatePhone",
+    "jsonPath": "home.privatePhone",
+    "name": "Personal phone",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "personalContact",
+    "categoryDisplayName": "Personal contact details",
+    "categoryId": "personalContact",
+    "description": null,
+    "historical": false,
+    "id": "home.mobilePhone",
+    "jsonPath": "home.mobilePhone",
+    "name": "Personal mobile",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "identification",
+    "categoryDisplayName": "Identification",
+    "categoryId": "identification",
+    "description": null,
+    "historical": false,
+    "id": "financial.passportNumber",
+    "jsonPath": "financial.passportNumber",
+    "name": "Passport number",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "identification",
+    "categoryDisplayName": "Identification",
+    "categoryId": "identification",
+    "description": null,
+    "historical": false,
+    "id": "financial.identificationNumber",
+    "jsonPath": "financial.identificationNumber",
+    "name": "National ID",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "identification",
+    "categoryDisplayName": "Identification",
+    "categoryId": "identification",
+    "description": null,
+    "historical": false,
+    "id": "payroll.nin",
+    "jsonPath": "payroll.nin",
+    "name": "NI number",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "identification",
+    "categoryDisplayName": "Identification",
+    "categoryId": "identification",
+    "description": null,
+    "historical": false,
+    "id": "identification.ssnSerialNumber",
+    "jsonPath": "identification.ssnSerialNumber",
+    "name": "SSN Last 4 Digits",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "identification",
+    "categoryDisplayName": "Identification",
+    "categoryId": "identification",
+    "description": null,
+    "historical": false,
+    "id": "identification.ssn",
+    "jsonPath": "identification.ssn",
+    "name": "SSN",
+    "type": "ssn",
+    "typeData": {}
+  },
+  {
+    "category": "identification",
+    "categoryDisplayName": "Identification",
+    "categoryId": "identification",
+    "description": null,
+    "historical": false,
+    "id": "employee.sin",
+    "jsonPath": "employee.sin",
+    "name": "Social insurance number (SIN)",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "identification",
+    "categoryDisplayName": "Identification",
+    "categoryId": "identification",
+    "description": null,
+    "historical": false,
+    "id": "employee.sinExpirationDate",
+    "jsonPath": "employee.sinExpirationDate",
+    "name": "SIN expiration date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": true,
+    "id": "work.activeEffectiveDate",
+    "jsonPath": "work.activeEffectiveDate",
+    "name": "Work effective date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.employeeIdInCompany",
+    "jsonPath": "work.employeeIdInCompany",
+    "name": "Employee ID",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": true,
+    "id": "work.title",
+    "jsonPath": "work.title",
+    "name": "Job title",
+    "type": "list",
+    "typeData": {
+      "listId": "title"
+    }
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.startDate",
+    "jsonPath": "work.startDate",
+    "name": "Start date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.shortStartDate",
+    "jsonPath": "work.shortStartDate",
+    "name": "Work anniversary",
+    "type": "short-date",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.originalStartDate",
+    "jsonPath": "work.originalStartDate",
+    "name": "Original start date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.durationOfEmployment",
+    "jsonPath": "work.durationOfEmployment",
+    "name": "Accumulated tenure (duration)",
+    "type": "period",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.yearsOfService",
+    "jsonPath": "work.yearsOfService",
+    "name": "Accumulated tenure (years)",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.tenureDuration",
+    "jsonPath": "work.tenureDuration",
+    "name": "Tenure (duration)",
+    "type": "period",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.tenureDurationYears",
+    "jsonPath": "work.tenureDurationYears",
+    "name": "Tenure (years)",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.tenureYears",
+    "jsonPath": "work.tenureYears",
+    "name": "Work anniversary (years)",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.site",
+    "jsonPath": "work.site",
+    "name": "Site",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": true,
+    "id": "work.siteId",
+    "jsonPath": "work.siteId",
+    "name": "Site",
+    "type": "list_id",
+    "typeData": {
+      "listId": "site"
+    }
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": true,
+    "id": "work.department",
+    "jsonPath": "work.department",
+    "name": "Department",
+    "type": "list",
+    "typeData": {
+      "listId": "department"
+    }
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": true,
+    "id": "work.workChangeType",
+    "jsonPath": "work.workChangeType",
+    "name": "Change type",
+    "type": "list",
+    "typeData": {
+      "listId": "workChangeType"
+    }
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": true,
+    "id": "work.reportsTo",
+    "jsonPath": "work.reportsTo",
+    "name": "Reports to",
+    "type": "employee",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.reportsTo.email",
+    "jsonPath": "work.reportsTo.email",
+    "name": "Manager's email",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.reportsToIdInCompany",
+    "jsonPath": "work.reportsToIdInCompany",
+    "name": "Manager's ID",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": true,
+    "id": "work.manager",
+    "jsonPath": "work.manager",
+    "name": "Manager",
+    "type": "employee-reference",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.secondLevelManager",
+    "jsonPath": "work.secondLevelManager",
+    "name": "Second level manager",
+    "type": "employee-reference",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.isManager",
+    "jsonPath": "work.isManager",
+    "name": "Is a manager",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.directReports",
+    "jsonPath": "work.directReports",
+    "name": "Number of direct reports",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.indirectReports",
+    "jsonPath": "work.indirectReports",
+    "name": "Number of direct and indirect reports",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "work.daysOfPreviousService",
+    "jsonPath": "work.daysOfPreviousService",
+    "name": "Tenure sum of previous lifecycle entries in days",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "employee.buddy",
+    "jsonPath": "employee.buddy",
+    "name": "Buddy",
+    "type": "employee-reference",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "employee.hrbp",
+    "jsonPath": "employee.hrbp",
+    "name": "HRBP",
+    "type": "employee-reference",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "employee.payrollManager",
+    "jsonPath": "employee.payrollManager",
+    "name": "Payroll manager",
+    "type": "employee-reference",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "employee.itAdmin",
+    "jsonPath": "employee.itAdmin",
+    "name": "IT admin",
+    "type": "employee-reference",
+    "typeData": {}
+  },
+  {
+    "category": "work",
+    "categoryDisplayName": "Work",
+    "categoryId": "work",
+    "description": null,
+    "historical": false,
+    "id": "employee.orgLevel",
+    "jsonPath": "employee.orgLevel",
+    "name": "Org level",
+    "type": "list",
+    "typeData": {
+      "listId": "orgLevels"
+    }
+  },
+  {
+    "category": "workContact",
+    "categoryDisplayName": "Work contact details",
+    "categoryId": "workContact",
+    "description": null,
+    "historical": false,
+    "id": "work.workMobile",
+    "jsonPath": "work.workMobile",
+    "name": "Work mobile",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "workContact",
+    "categoryDisplayName": "Work contact details",
+    "categoryId": "workContact",
+    "description": null,
+    "historical": false,
+    "id": "work.workPhone",
+    "jsonPath": "work.workPhone",
+    "name": "Work phone",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "workContact",
+    "categoryDisplayName": "Work contact details",
+    "categoryId": "workContact",
+    "description": null,
+    "historical": false,
+    "id": "personal.communication.slackUsername",
+    "jsonPath": "personal.communication.slackUsername",
+    "name": "Slack username",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "workContact",
+    "categoryDisplayName": "Work contact details",
+    "categoryId": "workContact",
+    "description": null,
+    "historical": false,
+    "id": "personal.communication.skypeUsername",
+    "jsonPath": "personal.communication.skypeUsername",
+    "name": "Skype username",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": true,
+    "id": "address.line1",
+    "jsonPath": "address.line1",
+    "name": "Address line 1",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": true,
+    "id": "address.line2",
+    "jsonPath": "address.line2",
+    "name": "Address line 2",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": false,
+    "id": "address.fullAddress",
+    "jsonPath": "address.fullAddress",
+    "name": "Full address",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": true,
+    "id": "address.city",
+    "jsonPath": "address.city",
+    "name": "City",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": true,
+    "id": "address.postCode",
+    "jsonPath": "address.postCode",
+    "name": "Zip/Post/Postal code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": true,
+    "id": "address.country",
+    "jsonPath": "address.country",
+    "name": "Country",
+    "type": "list",
+    "typeData": {
+      "listId": "countries"
+    }
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": true,
+    "id": "address.usaState",
+    "jsonPath": "address.usaState",
+    "name": "State/Province/Region",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": false,
+    "id": "address.siteAddress1",
+    "jsonPath": "address.siteAddress1",
+    "name": "Site address line 1",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": false,
+    "id": "address.siteAddress2",
+    "jsonPath": "address.siteAddress2",
+    "name": "Site address line 2",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": false,
+    "id": "address.siteCountry",
+    "jsonPath": "address.siteCountry",
+    "name": "Site country",
+    "type": "list",
+    "typeData": {
+      "listId": "countries"
+    }
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": false,
+    "id": "address.sitePostalCode",
+    "jsonPath": "address.sitePostalCode",
+    "name": "Site Zip/Post/Postal code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": false,
+    "id": "address.siteCity",
+    "jsonPath": "address.siteCity",
+    "name": "Site city",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": false,
+    "id": "address.siteState",
+    "jsonPath": "address.siteState",
+    "name": "Site State/Province/Region",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "address",
+    "categoryDisplayName": "Address",
+    "categoryId": "address",
+    "description": null,
+    "historical": true,
+    "id": "address.activeEffectiveDate",
+    "jsonPath": "address.activeEffectiveDate",
+    "name": "Address effective date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.familyStatus",
+    "jsonPath": "home.familyStatus",
+    "name": "Marital status",
+    "type": "list",
+    "typeData": {
+      "listId": "familystatus"
+    }
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.legalGender",
+    "jsonPath": "home.legalGender",
+    "name": "Gender",
+    "type": "list",
+    "typeData": {
+      "listId": "legalGenderEnhanced"
+    }
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.numberOfKids",
+    "jsonPath": "home.numberOfKids",
+    "name": "Number of children",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.spouse.firstName",
+    "jsonPath": "home.spouse.firstName",
+    "name": "Spouse's first name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.spouse.surname",
+    "jsonPath": "home.spouse.surname",
+    "name": "Spouse's last name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.spouse.birthDate",
+    "jsonPath": "home.spouse.birthDate",
+    "name": "Spouse's birth date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.spouse.shortBirthDate",
+    "jsonPath": "home.spouse.shortBirthDate",
+    "name": "Spouse's birthday",
+    "type": "short-date",
+    "typeData": {}
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "home.spouse.gender",
+    "jsonPath": "home.spouse.gender",
+    "name": "Spouse's gender",
+    "type": "list",
+    "typeData": {
+      "listId": "legalGenderEnhanced"
+    }
+  },
+  {
+    "category": "home",
+    "categoryDisplayName": "Home",
+    "categoryId": "home",
+    "description": null,
+    "historical": false,
+    "id": "employee.legalSex",
+    "jsonPath": "employee.legalSex",
+    "name": "Legal sex",
+    "type": "list",
+    "typeData": {
+      "listId": "legalGender"
+    }
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.avatar",
+    "jsonPath": "about.avatar",
+    "name": "Profile personalization",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.about",
+    "jsonPath": "about.about",
+    "name": "About",
+    "type": "text-area",
+    "typeData": {}
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.socialData.facebook",
+    "jsonPath": "about.socialData.facebook",
+    "name": "Social - Facebook",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.socialData.twitter",
+    "jsonPath": "about.socialData.twitter",
+    "name": "Social - Twitter",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.socialData.linkedin",
+    "jsonPath": "about.socialData.linkedin",
+    "name": "Social - LinkedIn",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.hobbies",
+    "jsonPath": "about.hobbies",
+    "name": "Hobbies",
+    "type": "multi-list",
+    "typeData": {
+      "listId": "hobbies"
+    }
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.superpowers",
+    "jsonPath": "about.superpowers",
+    "name": "Superpowers",
+    "type": "multi-list",
+    "typeData": {
+      "listId": "superpowers"
+    }
+  },
+  {
+    "category": "about",
+    "categoryDisplayName": "About",
+    "categoryId": "about",
+    "description": null,
+    "historical": false,
+    "id": "about.foodPreferences",
+    "jsonPath": "about.foodPreferences",
+    "name": "Food preferences",
+    "type": "multi-list",
+    "typeData": {
+      "listId": "foodPreferences"
+    }
+  },
+  {
+    "category": "rightToWork",
+    "categoryDisplayName": "Right to work",
+    "categoryId": "rightToWork",
+    "description": null,
+    "historical": false,
+    "id": "financial.rightToWorkExpiryDate",
+    "jsonPath": "financial.rightToWorkExpiryDate",
+    "name": "Right to work closest expiry date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.activeEffectiveDate",
+    "jsonPath": "payroll.employment.activeEffectiveDate",
+    "name": "Employment effective date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.contract",
+    "jsonPath": "payroll.employment.contract",
+    "name": "Employment contract",
+    "type": "list",
+    "typeData": {
+      "listId": "employmentstatus"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.type",
+    "jsonPath": "payroll.employment.type",
+    "name": "Employment type",
+    "type": "list",
+    "typeData": {
+      "listId": "payrollEmploymentType"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.workingPattern",
+    "jsonPath": "payroll.employment.workingPattern",
+    "name": "Working pattern",
+    "type": "working_pattern",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": false,
+    "id": "payroll.employment.standardWorkingPattern",
+    "jsonPath": "payroll.employment.standardWorkingPattern",
+    "name": "Standard working pattern",
+    "type": "working_pattern",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": false,
+    "id": "payroll.employment.standardWorkingPattern.workingPatternId",
+    "jsonPath": "payroll.employment.standardWorkingPattern.workingPatternId",
+    "name": "Full time working pattern",
+    "type": "list_id",
+    "typeData": {
+      "listId": "workingPattern_entity_list"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.personalWorkingPatternType",
+    "jsonPath": "payroll.employment.personalWorkingPatternType",
+    "name": "Personal working pattern",
+    "type": "list",
+    "typeData": {
+      "listId": "personalWorkingPatternTypes"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.hoursInDayNotWorked",
+    "jsonPath": "payroll.employment.hoursInDayNotWorked",
+    "name": "Hours in days not worked",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": false,
+    "id": "payroll.employment.siteWorkingPattern",
+    "jsonPath": "payroll.employment.siteWorkingPattern",
+    "name": "Site working pattern",
+    "type": "working_pattern",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": false,
+    "id": "payroll.employment.actualWorkingPattern",
+    "jsonPath": "payroll.employment.actualWorkingPattern",
+    "name": "Actual working pattern",
+    "type": "working_pattern",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.calendarId",
+    "jsonPath": "payroll.employment.calendarId",
+    "name": "Holiday calendar ID",
+    "type": "list_id",
+    "typeData": {
+      "listId": "calendar"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.salaryPayType",
+    "jsonPath": "payroll.employment.salaryPayType",
+    "name": "Salary pay type",
+    "type": "list",
+    "typeData": {
+      "listId": "salaryPayType"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.flsaCode",
+    "jsonPath": "payroll.employment.flsaCode",
+    "name": "FLSA code",
+    "type": "list",
+    "typeData": {
+      "listId": "flsaCode"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.fte",
+    "jsonPath": "payroll.employment.fte",
+    "name": "FTE %",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "payroll.employment.weeklyHours",
+    "jsonPath": "payroll.employment.weeklyHours",
+    "name": "Weekly hours",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": false,
+    "id": "employee.workLocationId",
+    "jsonPath": "employee.workLocationId",
+    "name": "Work location",
+    "type": "list_id",
+    "typeData": {
+      "listId": "workLocation_entity_list"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "employee.remoteWorkLocationId",
+    "jsonPath": "employee.remoteWorkLocationId",
+    "name": "employee.remoteWorkLocationId",
+    "type": "list_id",
+    "typeData": {
+      "listId": "workLocation_entity_list"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": false,
+    "id": "employee.employerId",
+    "jsonPath": "employee.employerId",
+    "name": "Employer",
+    "type": "list_id",
+    "typeData": {
+      "listId": "employer_entity_list"
+    }
+  },
+  {
+    "category": "employment",
+    "categoryDisplayName": "Employment",
+    "categoryId": "employment",
+    "description": null,
+    "historical": true,
+    "id": "employee.employerWorkLocationId",
+    "jsonPath": "employee.employerWorkLocationId",
+    "name": "Employer and work location",
+    "type": "hierarchy-list",
+    "typeData": {
+      "listId": "employer_workLocation_tree_entity_list"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.salary.activeEffectiveDate",
+    "jsonPath": "payroll.salary.activeEffectiveDate",
+    "name": "Salary effective date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.salary.payment",
+    "jsonPath": "payroll.salary.payment",
+    "name": "Base salary",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "payroll.salary.payment.currency",
+    "jsonPath": "payroll.salary.payment.currency",
+    "name": "Base salary currency code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.salary.payPeriod",
+    "jsonPath": "payroll.salary.payPeriod",
+    "name": "Salary pay period",
+    "type": "list",
+    "typeData": {
+      "listId": "payPeriod"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.salary.payFrequency",
+    "jsonPath": "payroll.salary.payFrequency",
+    "name": "Salary pay frequency",
+    "type": "list",
+    "typeData": {
+      "listId": "payFrequency"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "payroll.salary.yearlyPayment",
+    "jsonPath": "payroll.salary.yearlyPayment",
+    "name": "Base salary (annual)",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "payroll.salary.monthlyPayment",
+    "jsonPath": "payroll.salary.monthlyPayment",
+    "name": "Base salary (monthly)",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "payroll.additionalPensionContribution",
+    "jsonPath": "payroll.additionalPensionContribution",
+    "name": "Additional pension contribution",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "payroll.taxCode",
+    "jsonPath": "payroll.taxCode",
+    "name": "Tax code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "payroll.timeSinceLastSalaryChange",
+    "jsonPath": "payroll.timeSinceLastSalaryChange",
+    "name": "Time since last salary change",
+    "type": "period",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Bonus.payoutType",
+    "jsonPath": "payroll.variable.Bonus.payoutType",
+    "name": "Variable Pay/Bonus/Payout type",
+    "type": "list",
+    "typeData": {
+      "listId": "payrollVariablePayoutType"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Commission.payoutType",
+    "jsonPath": "payroll.variable.Commission.payoutType",
+    "name": "Variable Pay/Commission/Payout type",
+    "type": "list",
+    "typeData": {
+      "listId": "payrollVariablePayoutType"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Executive bonus.payoutType",
+    "jsonPath": "payroll.variable.Executive bonus.payoutType",
+    "name": "Variable Pay/Executive bonus/Payout type",
+    "type": "list",
+    "typeData": {
+      "listId": "payrollVariablePayoutType"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Bonus.amount",
+    "jsonPath": "payroll.variable.Bonus.amount",
+    "name": "Variable Pay/Bonus/Amount",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Commission.amount",
+    "jsonPath": "payroll.variable.Commission.amount",
+    "name": "Variable Pay/Commission/Amount",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Executive bonus.amount",
+    "jsonPath": "payroll.variable.Executive bonus.amount",
+    "name": "Variable Pay/Executive bonus/Amount",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Bonus.percentageOfAnnualSalary",
+    "jsonPath": "payroll.variable.Bonus.percentageOfAnnualSalary",
+    "name": "Variable Pay/Bonus/Percentage of annual salary",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Commission.percentageOfAnnualSalary",
+    "jsonPath": "payroll.variable.Commission.percentageOfAnnualSalary",
+    "name": "Variable Pay/Commission/Percentage of annual salary",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Executive bonus.percentageOfAnnualSalary",
+    "jsonPath": "payroll.variable.Executive bonus.percentageOfAnnualSalary",
+    "name": "Variable Pay/Executive bonus/Percentage of annual salary",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Bonus.paymentPeriod",
+    "jsonPath": "payroll.variable.Bonus.paymentPeriod",
+    "name": "Variable Pay/Bonus/Pay period",
+    "type": "list",
+    "typeData": {
+      "listId": "variablePayPeriod"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Commission.paymentPeriod",
+    "jsonPath": "payroll.variable.Commission.paymentPeriod",
+    "name": "Variable Pay/Commission/Pay period",
+    "type": "list",
+    "typeData": {
+      "listId": "variablePayPeriod"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Executive bonus.paymentPeriod",
+    "jsonPath": "payroll.variable.Executive bonus.paymentPeriod",
+    "name": "Variable Pay/Executive bonus/Pay period",
+    "type": "list",
+    "typeData": {
+      "listId": "variablePayPeriod"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Bonus.companyPercent",
+    "jsonPath": "payroll.variable.Bonus.companyPercent",
+    "name": "Variable Pay/Bonus/% Company",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Commission.companyPercent",
+    "jsonPath": "payroll.variable.Commission.companyPercent",
+    "name": "Variable Pay/Commission/% Company",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Executive bonus.companyPercent",
+    "jsonPath": "payroll.variable.Executive bonus.companyPercent",
+    "name": "Variable Pay/Executive bonus/% Company",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Bonus.departmentPercent",
+    "jsonPath": "payroll.variable.Bonus.departmentPercent",
+    "name": "Variable Pay/Bonus/% Department",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Commission.departmentPercent",
+    "jsonPath": "payroll.variable.Commission.departmentPercent",
+    "name": "Variable Pay/Commission/% Department",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Executive bonus.departmentPercent",
+    "jsonPath": "payroll.variable.Executive bonus.departmentPercent",
+    "name": "Variable Pay/Executive bonus/% Department",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Bonus.individualPercent",
+    "jsonPath": "payroll.variable.Bonus.individualPercent",
+    "name": "Variable Pay/Bonus/% Individual",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Commission.individualPercent",
+    "jsonPath": "payroll.variable.Commission.individualPercent",
+    "name": "Variable Pay/Commission/% Individual",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.variable.Executive bonus.individualPercent",
+    "jsonPath": "payroll.variable.Executive bonus.individualPercent",
+    "name": "Variable Pay/Executive bonus/% Individual",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.entitlement.Childcare vouchers.amount",
+    "jsonPath": "payroll.entitlement.Childcare vouchers.amount",
+    "name": "Entitlement/Childcare vouchers/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.entitlement.Company Car.amount",
+    "jsonPath": "payroll.entitlement.Company Car.amount",
+    "name": "Entitlement/Company Car/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.entitlement.Cycle to work.amount",
+    "jsonPath": "payroll.entitlement.Cycle to work.amount",
+    "name": "Entitlement/Cycle to work/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.entitlement.Lunch vouchers.amount",
+    "jsonPath": "payroll.entitlement.Lunch vouchers.amount",
+    "name": "Entitlement/Lunch vouchers/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.entitlement.Season ticket loans.amount",
+    "jsonPath": "payroll.entitlement.Season ticket loans.amount",
+    "name": "Entitlement/Season ticket loans/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.deduction.Childcare vouchers.amount",
+    "jsonPath": "payroll.deduction.Childcare vouchers.amount",
+    "name": "Deduction/Childcare vouchers/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.deduction.Company Car.amount",
+    "jsonPath": "payroll.deduction.Company Car.amount",
+    "name": "Deduction/Company Car/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.deduction.Cycle to work.amount",
+    "jsonPath": "payroll.deduction.Cycle to work.amount",
+    "name": "Deduction/Cycle to work/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.deduction.Lunch vouchers.amount",
+    "jsonPath": "payroll.deduction.Lunch vouchers.amount",
+    "name": "Deduction/Lunch vouchers/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": true,
+    "id": "payroll.deduction.Season ticket loans.amount",
+    "jsonPath": "payroll.deduction.Season ticket loans.amount",
+    "name": "Deduction/Season ticket loans/Monthly sum",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "actualPayment.payDate",
+    "jsonPath": "actualPayment.payDate",
+    "name": "Payment Date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "actualPayment.payType",
+    "jsonPath": "actualPayment.payType",
+    "name": "Payment type",
+    "type": "list",
+    "typeData": {
+      "listId": "payType"
+    }
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "actualPayment.amount",
+    "jsonPath": "actualPayment.amount",
+    "name": "Amount",
+    "type": "currency",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "actualPayment.change.reason",
+    "jsonPath": "actualPayment.change.reason",
+    "name": "Reason",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "payroll",
+    "categoryDisplayName": "Payroll",
+    "categoryId": "payroll",
+    "description": null,
+    "historical": false,
+    "id": "actualPayment.change.changedBy",
+    "jsonPath": "actualPayment.change.changedBy",
+    "name": "Changed By",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": null,
+    "historical": false,
+    "id": "employee.starterType",
+    "jsonPath": "employee.starterType",
+    "name": "Starter type",
+    "type": "list",
+    "typeData": {
+      "listId": "ukTaxSettingsStarterType"
+    }
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": null,
+    "historical": false,
+    "id": "employee.starterDeclaration",
+    "jsonPath": "employee.starterDeclaration",
+    "name": "Starter declaration",
+    "type": "list",
+    "typeData": {
+      "listId": "ukTaxSettingsStarterDeclaration"
+    }
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": null,
+    "historical": false,
+    "id": "employee.taxResidency",
+    "jsonPath": "employee.taxResidency",
+    "name": "Tax residency",
+    "type": "list",
+    "typeData": {
+      "listId": "ukTaxSettingsTaxResidency"
+    }
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "This is found under box 6 in the P45. If you have a Welsh or Scottish tax code, do not state the letter before the number, e.g., S1257L. Instead keep it as 1257L and select your relevant tax residency.",
+    "historical": false,
+    "id": "employee.taxCode",
+    "jsonPath": "employee.taxCode",
+    "name": "Tax code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "May also appear as W1/M1 in payslips. This is found under box 6 in the P45.",
+    "historical": false,
+    "id": "employee.w1m1",
+    "jsonPath": "employee.w1m1",
+    "name": "Week 1 / Month 1",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "Field should be blank if not repaying student loans. If repaying a student loan but unsure of the plan type, select \u201cPlan 5\u201d.",
+    "historical": false,
+    "id": "employee.loanTypes",
+    "jsonPath": "employee.loanTypes",
+    "name": "Repaying student or postgraduate loan type",
+    "type": "multi-list",
+    "typeData": {
+      "listId": "ukTaxSettingsLoanTypes"
+    }
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "This is found under box 7 or 8 in the P45 and is only relevant if the date left previous employment is in the current tax year",
+    "historical": false,
+    "id": "employee.previousTaxablePay",
+    "jsonPath": "employee.previousTaxablePay",
+    "name": "Previous taxable pay (GBP)",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "This is found under box 7 or 8 in the P45 and is only relevant if the date left previous employment is in the current tax year",
+    "historical": false,
+    "id": "employee.previousTaxPaid",
+    "jsonPath": "employee.previousTaxPaid",
+    "name": "Previous tax paid (GBP)",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "This is found in the P60 and pay slips. \u201cA\u201d is the most common category.",
+    "historical": false,
+    "id": "employee.nationalInsuranceCategory",
+    "jsonPath": "employee.nationalInsuranceCategory",
+    "name": "National insurance category",
+    "type": "list",
+    "typeData": {
+      "listId": "ukTaxSettingsNationalInsuranceCategory"
+    }
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "Field should be blank if the employee isn\u2019t a listed director on Companies House for this employer.",
+    "historical": false,
+    "id": "employee.directorAppointedOn",
+    "jsonPath": "employee.directorAppointedOn",
+    "name": "Director appointed on",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": null,
+    "historical": false,
+    "id": "employee.directorsNIBasis",
+    "jsonPath": "employee.directorsNIBasis",
+    "name": "Directors national insurance basis",
+    "type": "list",
+    "typeData": {
+      "listId": "ukTaxSettingsDirectorsNIBasis"
+    }
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "IR35 classifies employment status in a company. IR35 status must be verified with the employer.",
+    "historical": false,
+    "id": "employee.isIR35Contractor",
+    "jsonPath": "employee.isIR35Contractor",
+    "name": "IR35 contractor",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": null,
+    "historical": false,
+    "id": "employee.hasPaidPayslip",
+    "jsonPath": "employee.hasPaidPayslip",
+    "name": "employee.hasPaidPayslip",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": "Enter the \"leaving date\" from box 4 on the P45. If this is from a previous tax year, do not enter any previous pay or tax figures.",
+    "historical": false,
+    "id": "employee.dateLeftPreviousEmployment",
+    "jsonPath": "employee.dateLeftPreviousEmployment",
+    "name": "Date left previous employment",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": null,
+    "historical": false,
+    "id": "employee.ukTaxSettingsLockedByP6",
+    "jsonPath": "employee.ukTaxSettingsLockedByP6",
+    "name": "Locked by HMRC Update",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "ukTaxSettings",
+    "categoryDisplayName": "UK tax settings",
+    "categoryId": "ukTaxSettings",
+    "description": null,
+    "historical": false,
+    "id": "employee.isTaxYearReset",
+    "jsonPath": "employee.isTaxYearReset",
+    "name": "employee.isTaxYearReset",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.firstName",
+    "jsonPath": "emergency.firstName",
+    "name": "Emergency contact's first name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.secondName",
+    "jsonPath": "emergency.secondName",
+    "name": "Emergency contact's middle name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.surname",
+    "jsonPath": "emergency.surname",
+    "name": "Emergency contact's last name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.relation",
+    "jsonPath": "emergency.relation",
+    "name": "Emergency Contact Relationship",
+    "type": "list",
+    "typeData": {
+      "listId": "relation"
+    }
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.phone",
+    "jsonPath": "emergency.phone",
+    "name": "Emergency contact's phone number",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.mobilePhone",
+    "jsonPath": "emergency.mobilePhone",
+    "name": "Emergency contact's mobile phone number",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.email",
+    "jsonPath": "emergency.email",
+    "name": "Emergency contact's email",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.address",
+    "jsonPath": "emergency.address",
+    "name": "Emergency contact's address",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.city",
+    "jsonPath": "emergency.city",
+    "name": "Emergency contact's city of residence",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.postCode",
+    "jsonPath": "emergency.postCode",
+    "name": "Emergency contact's post code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "emergency",
+    "categoryDisplayName": "Emergency",
+    "categoryId": "emergency",
+    "description": null,
+    "historical": false,
+    "id": "emergency.country",
+    "jsonPath": "emergency.country",
+    "name": "Emergency contact's country of residence",
+    "type": "list",
+    "typeData": {
+      "listId": "countries"
+    }
+  },
+  {
+    "category": "temporaryAddress",
+    "categoryDisplayName": "Temporary address",
+    "categoryId": "temporaryAddress",
+    "description": null,
+    "historical": false,
+    "id": "temporaryAddress.line1",
+    "jsonPath": "temporaryAddress.line1",
+    "name": "Temporary address line 1",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "temporaryAddress",
+    "categoryDisplayName": "Temporary address",
+    "categoryId": "temporaryAddress",
+    "description": null,
+    "historical": false,
+    "id": "temporaryAddress.line2",
+    "jsonPath": "temporaryAddress.line2",
+    "name": "Temporary address line 2",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "temporaryAddress",
+    "categoryDisplayName": "Temporary address",
+    "categoryId": "temporaryAddress",
+    "description": null,
+    "historical": false,
+    "id": "temporaryAddress.city",
+    "jsonPath": "temporaryAddress.city",
+    "name": "Temporary city",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "temporaryAddress",
+    "categoryDisplayName": "Temporary address",
+    "categoryId": "temporaryAddress",
+    "description": null,
+    "historical": false,
+    "id": "temporaryAddress.usaState",
+    "jsonPath": "temporaryAddress.usaState",
+    "name": "Temporary State/Province/Region",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "temporaryAddress",
+    "categoryDisplayName": "Temporary address",
+    "categoryId": "temporaryAddress",
+    "description": null,
+    "historical": false,
+    "id": "temporaryAddress.country",
+    "jsonPath": "temporaryAddress.country",
+    "name": "Temporary country",
+    "type": "list",
+    "typeData": {
+      "listId": "countries"
+    }
+  },
+  {
+    "category": "temporaryAddress",
+    "categoryDisplayName": "Temporary address",
+    "categoryId": "temporaryAddress",
+    "description": null,
+    "historical": false,
+    "id": "temporaryAddress.postCode",
+    "jsonPath": "temporaryAddress.postCode",
+    "name": "Temporary Zip/Post/Postal code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": true,
+    "id": "internal.lifecycleStatus",
+    "jsonPath": "internal.lifecycleStatus",
+    "name": "Lifecycle status",
+    "type": "list",
+    "typeData": {
+      "listId": "lifecycleStatus"
+    }
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": true,
+    "id": "internal.status",
+    "jsonPath": "internal.status",
+    "name": "Status",
+    "type": "list",
+    "typeData": {
+      "listId": "status"
+    }
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.terminationReason",
+    "jsonPath": "internal.terminationReason",
+    "name": "Reason for termination",
+    "type": "list",
+    "typeData": {
+      "listId": "terminationreason"
+    }
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.terminationDate",
+    "jsonPath": "internal.terminationDate",
+    "name": "Termination date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.periodSinceTermination",
+    "jsonPath": "internal.periodSinceTermination",
+    "name": "Period since termination",
+    "type": "period",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.yearsSinceTermination",
+    "jsonPath": "internal.yearsSinceTermination",
+    "name": "Years since termination",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.notice",
+    "jsonPath": "internal.notice",
+    "name": "Notice period",
+    "type": "duration_with_unit",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.probationEndDate",
+    "jsonPath": "internal.probationEndDate",
+    "name": "Probation end date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.terminationType",
+    "jsonPath": "internal.terminationType",
+    "name": "Leave and termination type",
+    "type": "list",
+    "typeData": {
+      "listId": "lifecycleReasonType"
+    }
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "internal.currentActiveStatusStartDate",
+    "jsonPath": "internal.currentActiveStatusStartDate",
+    "name": "current active lifecycle start date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "employee.recentLeaveStartDate",
+    "jsonPath": "employee.recentLeaveStartDate",
+    "name": "Recent leave start date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "employee.recentLeaveEndDate",
+    "jsonPath": "employee.recentLeaveEndDate",
+    "name": "Recent leave end date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "employee.firstDayOfWork",
+    "jsonPath": "employee.firstDayOfWork",
+    "name": "First day of work",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": false,
+    "id": "employee.lastDayOfWork",
+    "jsonPath": "employee.lastDayOfWork",
+    "name": "Last day of work",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": true,
+    "id": "employee.eligibleForRehire",
+    "jsonPath": "employee.eligibleForRehire",
+    "name": "Eligible for Rehire",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "lifecycle",
+    "categoryDisplayName": "Lifecycle",
+    "categoryId": "lifecycle",
+    "description": null,
+    "historical": true,
+    "id": "employee.regrettableTermination",
+    "jsonPath": "employee.regrettableTermination",
+    "name": "Regrettable Termination",
+    "type": "boolean",
+    "typeData": {}
+  },
+  {
+    "category": "userData",
+    "categoryDisplayName": "User data",
+    "categoryId": "userData",
+    "description": null,
+    "historical": false,
+    "id": "root.state",
+    "jsonPath": "state",
+    "name": "State",
+    "type": "list",
+    "typeData": {
+      "listId": "state"
+    }
+  },
+  {
+    "category": "userData",
+    "categoryDisplayName": "User data",
+    "categoryId": "userData",
+    "description": null,
+    "historical": false,
+    "id": "root.creationDate",
+    "jsonPath": "creationDate",
+    "name": "Creation date",
+    "type": "date",
+    "typeData": {}
+  },
+  {
+    "category": "userData",
+    "categoryDisplayName": "User data",
+    "categoryId": "userData",
+    "description": null,
+    "historical": true,
+    "id": "employee.enrolledInPayrollModuleStatus",
+    "jsonPath": "employee.enrolledInPayrollModuleStatus",
+    "name": "Enrolled in Payroll",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "eeo",
+    "categoryDisplayName": "EEO",
+    "categoryId": "eeo",
+    "description": null,
+    "historical": false,
+    "id": "eeo.ethnicity",
+    "jsonPath": "eeo.ethnicity",
+    "name": "Ethnicity",
+    "type": "list",
+    "typeData": {
+      "listId": "ethnicity"
+    }
+  },
+  {
+    "category": "eeo",
+    "categoryDisplayName": "EEO",
+    "categoryId": "eeo",
+    "description": null,
+    "historical": false,
+    "id": "eeo.jobCategory",
+    "jsonPath": "eeo.jobCategory",
+    "name": "Job category",
+    "type": "list",
+    "typeData": {
+      "listId": "jobCategory"
+    }
+  },
+  {
+    "category": "eeo",
+    "categoryDisplayName": "EEO",
+    "categoryId": "eeo",
+    "description": null,
+    "historical": false,
+    "id": "employee.ethnicities",
+    "jsonPath": "employee.ethnicities",
+    "name": "Ethnicities",
+    "type": "multi-list",
+    "typeData": {
+      "listId": "ethnicities"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.ageRiskIndicator",
+    "jsonPath": "peopleAnalytics.ageRiskIndicator",
+    "name": "Age risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.kidsRiskIndicator",
+    "jsonPath": "peopleAnalytics.kidsRiskIndicator",
+    "name": "Kids risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.isManagerRiskIndicator",
+    "jsonPath": "peopleAnalytics.isManagerRiskIndicator",
+    "name": "Is manager risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.numWithSameTitleRiskIndicator",
+    "jsonPath": "peopleAnalytics.numWithSameTitleRiskIndicator",
+    "name": "Number of people with the same title risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.teamSizeRiskIndicator",
+    "jsonPath": "peopleAnalytics.teamSizeRiskIndicator",
+    "name": "Team size risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.yearsWithCurrentTitleRiskIndicator",
+    "jsonPath": "peopleAnalytics.yearsWithCurrentTitleRiskIndicator",
+    "name": "Years with current title risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.yearsWithRecentSalaryRiskIndicator",
+    "jsonPath": "peopleAnalytics.yearsWithRecentSalaryRiskIndicator",
+    "name": "Years with recent salary risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.managerTenureRiskIndicator",
+    "jsonPath": "peopleAnalytics.managerTenureRiskIndicator",
+    "name": "Manager tenure risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.numOfDirectReportsRiskIndicator",
+    "jsonPath": "peopleAnalytics.numOfDirectReportsRiskIndicator",
+    "name": "Number of direct reports risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.teamRecentTurnoverRiskIndicator",
+    "jsonPath": "peopleAnalytics.teamRecentTurnoverRiskIndicator",
+    "name": "Team recent turnover risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.timeoffFrequencyRiskIndicator",
+    "jsonPath": "peopleAnalytics.timeoffFrequencyRiskIndicator",
+    "name": "Timeoff frequency risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.tenureRankRiskIndicator",
+    "jsonPath": "peopleAnalytics.tenureRankRiskIndicator",
+    "name": "Tenure rank risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.recentManagerChangeRiskIndicator",
+    "jsonPath": "peopleAnalytics.recentManagerChangeRiskIndicator",
+    "name": "Recent manager change risk indicator",
+    "type": "list",
+    "typeData": {
+      "listId": "flightRiskStatus"
+    }
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.lowRiskCounter",
+    "jsonPath": "peopleAnalytics.lowRiskCounter",
+    "name": "Number of 'low risk' indicators",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.someRiskCounter",
+    "jsonPath": "peopleAnalytics.someRiskCounter",
+    "name": "Number of 'some risk' indicators",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "peopleAnalytics",
+    "categoryDisplayName": "People analytics",
+    "categoryId": "peopleAnalytics",
+    "description": null,
+    "historical": false,
+    "id": "peopleAnalytics.atRiskCounter",
+    "jsonPath": "peopleAnalytics.atRiskCounter",
+    "name": "Number of 'at risk' indicators",
+    "type": "number",
+    "typeData": {}
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobProfileCode",
+    "jsonPath": "employee.jobProfileCode",
+    "name": "Job code",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobProfileTitle",
+    "jsonPath": "employee.jobProfileTitle",
+    "name": "Job profile name",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobLevelName",
+    "jsonPath": "employee.jobLevelName",
+    "name": "Job level name",
+    "type": "hierarchy-list",
+    "typeData": {
+      "listId": "jobLevelRole_entity_list"
+    }
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobLevelTypeId",
+    "jsonPath": "employee.jobLevelTypeId",
+    "name": "Job level track",
+    "type": "list_id",
+    "typeData": {
+      "listId": "jobLevelType_entity_list"
+    }
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobRoleId",
+    "jsonPath": "employee.jobRoleId",
+    "name": "Job role",
+    "type": "list_id",
+    "typeData": {
+      "listId": "jobRole_entity_list"
+    }
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobFamilyId",
+    "jsonPath": "employee.jobFamilyId",
+    "name": "Job family",
+    "type": "list_id",
+    "typeData": {
+      "listId": "jobFamily_entity_list"
+    }
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobFamilyGroupId",
+    "jsonPath": "employee.jobFamilyGroupId",
+    "name": "Job family group",
+    "type": "list_id",
+    "typeData": {
+      "listId": "jobFamilyGroup_entity_list"
+    }
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": false,
+    "id": "employee.jobProfileDescription",
+    "jsonPath": "employee.jobProfileDescription",
+    "name": "Job profile description",
+    "type": "text",
+    "typeData": {}
+  },
+  {
+    "category": "jobsCatalog",
+    "categoryDisplayName": "Jobs",
+    "categoryId": "jobsCatalog",
+    "description": null,
+    "historical": true,
+    "id": "employee.jobProfileId",
+    "jsonPath": "employee.jobProfileId",
+    "name": "Job",
+    "type": "hierarchy-list",
+    "typeData": {
+      "listId": "jobProfile_entity_list"
+    }
+  }
+]

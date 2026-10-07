@@ -1,0 +1,26 @@
+{
+  "values": [
+    {
+      "activeEffectiveDate": "2026-09-06",
+      "canBeDeleted": false,
+      "change": {
+        "changedBy": null,
+        "changedById": "<text>",
+        "reason": null
+      },
+      "creationDate": null,
+      "customColumns": {},
+      "department": null,
+      "effectiveDate": "2026-09-06",
+      "endEffectiveDate": null,
+      "id": 1000020260906,
+      "isCurrent": true,
+      "modificationDate": "2026-09-06",
+      "reportsTo": null,
+      "site": "<text>",
+      "siteId": 2606110,
+      "title": null,
+      "workChangeType": "New Employee"
+    }
+  ]
+}
