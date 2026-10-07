@@ -41,6 +41,21 @@ class ListField:
         return self.type == MULTI_LIST_TYPE
 
 
+def named_list_items(payload: Any) -> list[Any]:
+    """Items of a single-list response.
+
+    The live endpoint answers ``{"name", "values", "items"}`` with the items
+    repeated under both keys; the reference documents ``items`` alone. A
+    bare list is accepted too.
+    """
+    if isinstance(payload, dict):
+        items = payload.get("items")
+        if items is None:
+            items = payload.get("values")
+        return items if isinstance(items, list) else []
+    return payload if isinstance(payload, list) else []
+
+
 def _descriptor_parts(
     object_type: str, descriptor: dict[str, Any]
 ) -> tuple[str | None, str, str | None, str | None]:

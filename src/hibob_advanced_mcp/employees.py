@@ -1,0 +1,232 @@
+"""HiBob employee lifecycle tools: terminate an employee.
+
+HiBob's API documents no way to undo a termination, so everything that can be
+checked is checked before the one request is sent: the dates, the employee
+(who must be found, and only once) and the reasons, which HiBob takes as list
+item IDs and are resolved here from the names a user would give.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from datetime import date
+from typing import Annotated, Any, Literal
+from urllib.parse import quote
+
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+from pydantic import Field
+
+from .client import HiBobClient, get_client
+from .envelopes import iso_date
+from .errors import HiBobApiError, format_exception
+from .list_values import named_list_items, resolve_list_values
+from .references import NOTHING_WRITTEN
+from .tasks import find_employees
+
+TERMINATE_PATH = "/employees/{employee_id}/terminate"
+NAMED_LIST_PATH = "/company/named-lists/{name}"
+TERMINATION_REASON_LIST = "terminationReason"
+REASON_TYPE_LIST = "lifecycleReasonType"
+
+
+def _dump(payload: Any) -> str:
+    return json.dumps(payload, indent=2, default=str)
+
+
+def _notice_period(length: int | None, unit: str | None) -> dict[str, Any] | None:
+    """HiBob's notice period, given both its parts or neither."""
+    if length is None and unit is None:
+        return None
+    if unit is None:
+        raise ValueError("notice_period_length needs a notice_period_unit.")
+    if length is None:
+        raise ValueError("notice_period_unit needs a notice_period_length.")
+    if length < 0:
+        raise ValueError(f"notice_period_length must not be negative, not {length}.")
+    return {"unit": unit, "length": length}
+
+
+async def _employee(client: HiBobClient, employee: str) -> dict[str, Any]:
+    """The one active employee with this ID or work email."""
+    text = str(employee or "").strip()
+    if not text:
+        raise ValueError("employee must not be empty.")
+    if "@" in text:
+        text = text.lower()
+        found = await find_employees(client, "root.email", text)
+    else:
+        found = await find_employees(client, "root.id", text)
+    if not found:
+        raise ValueError(
+            f"No active employee has the ID or work email {text!r}. {NOTHING_WRITTEN}"
+        )
+    if len(found) > 1:
+        names = ", ".join(f"{e['name']} ({e['id']})" for e in found)
+        raise ValueError(
+            f"{text!r} matches {len(found)} employees: {names}. Ask the user "
+            f"which one, then pass their employee ID. {NOTHING_WRITTEN}"
+        )
+    return found[0]
+
+
+async def _list_item_id(client: HiBobClient, list_name: str, value: Any) -> str:
+    """The ID of the item of ``list_name`` named, or identified by, ``value``."""
+    try:
+        payload = await client.get(NAMED_LIST_PATH.format(name=list_name))
+    except HiBobApiError as exc:
+        if exc.status_code == 403:
+            raise HiBobApiError(
+                f"HiBob denied reading its {list_name} list (403), so the "
+                "reason could not be checked. Check that the service user can "
+                "view the Lifecycle category under People's data > People's "
+                f"fields. {NOTHING_WRITTEN}",
+                status_code=403,
+                hibob_key=exc.hibob_key,
+                hibob_error=exc.hibob_error,
+            ) from exc
+        raise
+    items = named_list_items(payload)
+    match = resolve_list_values(items, [value])
+    if match["complete"]:
+        return str(match["values"][0])
+    problem = (match["ambiguous"] or match["unmatched"])[0]
+    offered = (
+        ", ".join(f"{c['name']!r} ({c['id']})" for c in problem["candidates"]) or "none"
+    )
+    how = "matches several" if match["ambiguous"] else "matches no"
+    raise ValueError(
+        f"{problem['name']!r} {how} items of HiBob's {list_name} list. "
+        f"Closest: {offered}. {NOTHING_WRITTEN}"
+    )
+
+
+def register_employee_tools(
+    mcp: FastMCP,
+    *,
+    read_only: bool = False,
+    client_factory: Callable[[], HiBobClient] = get_client,
+) -> None:
+    """Register the employee lifecycle tools; none exist when ``read_only``."""
+    if read_only:
+        return
+
+    @mcp.tool(
+        name="hibob_terminate_employee",
+        annotations=ToolAnnotations(
+            title="Terminate a HiBob employee",
+            readOnlyHint=False,
+            destructiveHint=True,
+            idempotentHint=False,
+            openWorldHint=True,
+        ),
+    )
+    async def hibob_terminate_employee(
+        employee: Annotated[
+            str,
+            Field(
+                description=(
+                    "The employee to terminate, by HiBob employee ID or work "
+                    "email (see hibob_find_employee)."
+                )
+            ),
+        ],
+        termination_date: Annotated[
+            str, Field(description="The termination date, YYYY-MM-DD.")
+        ],
+        last_day_of_work: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "The last day worked, YYYY-MM-DD, on or before the "
+                    "termination date."
+                )
+            ),
+        ] = None,
+        termination_reason: Annotated[
+            str | int | None,
+            Field(
+                description=(
+                    "The reason, by name ('Resigned') or ID, from HiBob's "
+                    "terminationReason list."
+                )
+            ),
+        ] = None,
+        reason_type: Annotated[
+            str | int | None,
+            Field(
+                description=(
+                    "The reason type, by name ('End of Contract') or ID, from "
+                    "HiBob's lifecycleReasonType list."
+                )
+            ),
+        ] = None,
+        notice_period_length: Annotated[
+            int | None,
+            Field(description="The notice period's length, with its unit."),
+        ] = None,
+        notice_period_unit: Annotated[
+            Literal["days", "weeks", "month", "years"] | None,
+            Field(description="The notice period's unit, in HiBob's spelling."),
+        ] = None,
+    ) -> str:
+        """Terminate an employee in HiBob. Sent once, never retried.
+
+        HiBob adds a termination entry to the employee's lifecycle, and their
+        status changes to Terminated on the termination date. HiBob's API
+        documents no way to undo this, so confirm the person, the date and the
+        reason with the user first. This does not revoke the employee's access
+        to Bob.
+
+        The employee may be given by ID or work email, and must be found
+        among active employees exactly once. Reasons may be given by name or
+        ID and are matched exactly, ignoring case, against HiBob's lists. An
+        unknown employee, an unmatched reason or an invalid date is refused
+        before anything is sent.
+
+        Returns:
+            str: JSON {"status": "termination_added", "employee": {"id",
+            "name", "email"}, "termination": {...}}, where "termination" is
+            exactly what HiBob was sent, or an error beginning "Error:".
+
+        Examples:
+            - "Jane's last day is 30 October, she resigned" ->
+              employee='jane@example.com', termination_date='2026-10-30',
+              termination_reason='Resigned', once the user confirms.
+
+        Rate limit: 10 requests/minute.
+        """
+        try:
+            day = iso_date("termination_date", termination_date)
+            body: dict[str, Any] = {"terminationDate": day}
+            if last_day_of_work is not None:
+                last_day = iso_date("last_day_of_work", last_day_of_work)
+                if date.fromisoformat(last_day) > date.fromisoformat(day):
+                    raise ValueError(
+                        f"last_day_of_work {last_day} is after the termination "
+                        f"date {day}. {NOTHING_WRITTEN}"
+                    )
+                body["lastDayOfWork"] = last_day
+            notice = _notice_period(notice_period_length, notice_period_unit)
+
+            api = client_factory()
+            person = await _employee(api, employee)
+            if termination_reason is not None:
+                body["terminationReason"] = await _list_item_id(
+                    api, TERMINATION_REASON_LIST, termination_reason
+                )
+            if reason_type is not None:
+                body["reasonType"] = await _list_item_id(
+                    api, REASON_TYPE_LIST, reason_type
+                )
+            if notice is not None:
+                body["noticePeriod"] = notice
+
+            path = TERMINATE_PATH.format(employee_id=quote(person["id"], safe=""))
+            await api.post(path, body)
+            return _dump(
+                {"status": "termination_added", "employee": person, "termination": body}
+            )
+        except Exception as exc:
+            return format_exception(exc)

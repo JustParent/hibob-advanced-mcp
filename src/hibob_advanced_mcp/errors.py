@@ -35,6 +35,9 @@ TOTAL_COST_NOTE = (
 )
 
 TASKS_PERMISSION = "access to tasks (read and complete) in the Tasks API"
+EMPLOYEE_LIFECYCLE_PERMISSION = (
+    "People's data > People's fields: Edit on the Lifecycle category"
+)
 REPORTS_PERMISSION = (
     "Features > Reports > View reports according to people's data access rights, "
     "plus People's Data access for the report's employees and fields; reports "
@@ -119,6 +122,8 @@ def _permission_for(path: str) -> str:
     """
     if path.startswith("/v1/tasks") or path == "/tasks":
         return TASKS_PERMISSION
+    if "/employees/" in path:
+        return EMPLOYEE_LIFECYCLE_PERMISSION
     if "/company/reports" in path:
         return REPORTS_PERMISSION
     if "/workforce-planning/" in path and "/position-budget" in path:
@@ -182,6 +187,11 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             "hibob_list_open_tasks lists task IDs and hibob_find_employee finds "
             "employee IDs."
         )
+    elif status == 404 and "/employees/" in path:
+        message = (
+            f"HiBob returned 404 for {path}. Check the employee ID - "
+            "hibob_find_employee finds employee IDs by work email."
+        )
     elif status == 404:
         message = (
             f"HiBob returned 404 for {path}. Check the position, opening, or budget "
@@ -204,6 +214,14 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             + (f": {detail.rstrip('.')}." if detail else ".")
             + " Check the report ID, format and locale. Configure report filters "
             "in Bob's UI; the download API does not accept change-date filters."
+        )
+    elif status == 400 and "/employees/" in path and path.endswith("/terminate"):
+        message = (
+            "HiBob rejected the termination (400)"
+            + (f": {detail.rstrip('.')}." if detail else ".")
+            + " Check the dates are YYYY-MM-DD and that the termination reason "
+            "and reason type are items of the company's terminationReason and "
+            "lifecycleReasonType lists."
         )
     elif (
         status == 400

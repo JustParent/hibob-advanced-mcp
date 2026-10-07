@@ -19,6 +19,7 @@ from .config import (
     ENV_SERVICE_USER_TOKEN,
     load_settings,
 )
+from .employees import register_employee_tools
 from .reports import register_reports_tools
 from .tasks import register_tasks_tools
 from .workforce_planning import register_workforce_planning_tools
@@ -37,6 +38,7 @@ def build_server(read_only: bool | None = None) -> FastMCP:
     mcp = FastMCP(SERVER_NAME)
     register_workforce_planning_tools(mcp, read_only=read_only)
     register_tasks_tools(mcp, read_only=read_only)
+    register_employee_tools(mcp, read_only=read_only)
     register_reports_tools(mcp)
     return mcp
 

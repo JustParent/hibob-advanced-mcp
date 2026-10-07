@@ -75,7 +75,7 @@ from .hierarchy import (
     shape_position,
     summarize_tree,
 )
-from .list_values import find_list_field, resolve_list_values
+from .list_values import find_list_field, named_list_items, resolve_list_values
 from .references import (
     NOTHING_WRITTEN,
     OPENING_NAME_FIELD,
@@ -449,21 +449,6 @@ def _named_list_path(list_name: str, include_archived: bool) -> str:
     return f"{path}?includeArchived=true" if include_archived else path
 
 
-def _named_list_items(payload: Any) -> list[Any]:
-    """Items of a single-list response.
-
-    The live endpoint answers ``{"name", "values", "items"}`` with the items
-    repeated under both keys; the reference documents ``items`` alone. A
-    bare list is accepted too.
-    """
-    if isinstance(payload, dict):
-        items = payload.get("items")
-        if items is None:
-            items = payload.get("values")
-        return items if isinstance(items, list) else []
-    return payload if isinstance(payload, list) else []
-
-
 # Cache key for the summary of every list, which no real list ID can collide with.
 ALL_LISTS_CACHE_ID = "*"
 # Metadata shares the named-list cache: both endpoints allow fifty calls a
@@ -490,7 +475,7 @@ async def _fetch_named_list(
     cached = cache.get(key)
     if cached is not None:
         return cached
-    items = _named_list_items(
+    items = named_list_items(
         await client.get(_named_list_path(list_id, include_archived))
     )
     cache.set(key, items)

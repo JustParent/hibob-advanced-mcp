@@ -36,20 +36,24 @@ async def find_employees_by_email(
     client: HiBobClient, email: str
 ) -> list[dict[str, Any]]:
     """Employees whose work email is ``email``: ID, display name and email."""
+    return await find_employees(client, "root.email", email)
+
+
+async def find_employees(
+    client: HiBobClient, field_path: str, value: str
+) -> list[dict[str, Any]]:
+    """Active employees whose ``field_path`` equals ``value``: ID, name, email."""
     body = {
         "fields": ["root.id", "root.displayName", "root.email"],
-        "filters": [
-            {"fieldPath": "root.email", "operator": "equals", "values": [email]}
-        ],
+        "filters": [{"fieldPath": field_path, "operator": "equals", "values": [value]}],
     }
     try:
         payload = await client.search(PEOPLE_SEARCH_PATH, body)
     except HiBobApiError as exc:
         if exc.status_code == 403:
             raise HiBobApiError(
-                "HiBob denied the employee lookup by email (403). The service "
-                "user needs permission to read employees' names and email "
-                "addresses.",
+                "HiBob denied the employee lookup (403). The service user needs "
+                "permission to read employees' names and email addresses.",
                 status_code=403,
                 hibob_key=exc.hibob_key,
                 hibob_error=exc.hibob_error,

@@ -38,12 +38,14 @@ WRITE_TOOLS = {
     "hibob_create_position_budget",
     "hibob_update_position_budget",
     "hibob_complete_task",
+    "hibob_terminate_employee",
 }
 
 DESTRUCTIVE_TOOLS = {
     "hibob_cancel_position",
     "hibob_schedule_position_cancellation",
     "hibob_delete_position_opening",
+    "hibob_terminate_employee",
 }
 
 
@@ -73,7 +75,7 @@ async def test_read_tools_are_annotated_read_only(server_factory) -> None:
             assert tool.annotations.destructiveHint is False
 
 
-async def test_only_cancel_and_delete_are_annotated_destructive(
+async def test_only_cancel_delete_and_terminate_are_annotated_destructive(
     server_factory,
 ) -> None:
     for tool in await server_factory().list_tools():
