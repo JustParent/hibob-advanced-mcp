@@ -200,3 +200,62 @@ def test_real_metadata_fixture() -> None:
         assert route_for(fields[job_field]).kind == "not_writable"
     assert [f.id for f in find_fields(real, "Site")] == ["work.siteId"]
     assert all(f.label for f in real)
+    assert route_for(fields["payroll.salary.payment"]).column == "base"
+    assert route_for(fields["work.siteId"]).wire == "int"
+    assert route_for(fields["payroll.employment.calendarId"]).wire == "int"
+    for derived in (
+        "payroll.salary.yearlyPayment",
+        "payroll.salary.monthlyPayment",
+        "payroll.employment.hoursInDayNotWorked",
+        "payroll.employment.personalWorkingPatternType",
+        "payroll.employment.standardWorkingPattern.workingPatternId",
+    ):
+        assert route_for(fields[derived]).kind == "not_writable", derived
+    for field in real:
+        route = route_for(field)
+        if route.kind == "dated":
+            assert route.table and route.column and route.wire, field.id
+
+
+@pytest.mark.parametrize(
+    ("field_id", "table", "column", "wire"),
+    [
+        ("work.title", "work", "title", "text"),
+        ("work.department", "work", "department", "text"),
+        ("work.siteId", "work", "siteId", "int"),
+        ("work.reportsTo", "work", "reportsTo", "employee"),
+        ("work.customColumns.column_55", "work", "customColumns.column_55", "text"),
+        ("payroll.employment.contract", "employment", "contract", "text"),
+        ("payroll.employment.type", "employment", "type", "text"),
+        ("payroll.employment.calendarId", "employment", "calendarId", "int"),
+        ("payroll.salary.payment", "salary", "base", "amount"),
+        ("payroll.salary.payPeriod", "salary", "payPeriod", "text"),
+        ("payroll.salary.payFrequency", "salary", "payFrequency", "text"),
+    ],
+)
+def test_dated_fields_say_which_table_column_they_are(
+    field_id: str, table: str, column: str, wire: str
+) -> None:
+    route = route_for(BY_ID[field_id])
+    assert (route.kind, route.table, route.column, route.wire) == (
+        "dated",
+        table,
+        column,
+        wire,
+    )
+
+
+@pytest.mark.parametrize(
+    "field_id",
+    [
+        "payroll.employment.fte",
+        "payroll.employment.personalWorkingPatternType",
+        "payroll.employment.workingPattern",
+        "payroll.employment.standardWorkingPattern.workingPatternId",
+        "payroll.salary.yearlyPayment",
+    ],
+)
+def test_employment_and_salary_fields_that_cannot_be_written(field_id: str) -> None:
+    route = route_for(BY_ID[field_id])
+    assert route.kind == "not_writable"
+    assert route.reason

@@ -13,6 +13,7 @@ which HiBob has returned both keyed by slash path and nested by category.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -22,11 +23,43 @@ ROOT_PREFIX = "root."
 EMAIL_FIELD = "root.email"
 START_DATE_FIELD = "work.startDate"
 MAX_CANDIDATES = 5
-# Effective-dated tables the API can add rows to, by field ID prefix.
-DATED_TABLE_PREFIXES = (
-    ("payroll.employment.", "employment"),
-    ("payroll.salary.", "salary"),
-    ("work.", "work"),
+# Columns of the effective-dated tables that a change can be written to: field
+# ID -> (table, column in the table's write body, how the value is sent).
+DATED_COLUMNS = {
+    "work.title": ("work", "title", "text"),
+    "work.department": ("work", "department", "text"),
+    "work.siteId": ("work", "siteId", "int"),
+    "work.reportsTo": ("work", "reportsTo", "employee"),
+    "payroll.employment.contract": ("employment", "contract", "text"),
+    "payroll.employment.type": ("employment", "type", "text"),
+    "payroll.employment.salaryPayType": ("employment", "salaryPayType", "text"),
+    "payroll.employment.flsaCode": ("employment", "flsaCode", "text"),
+    "payroll.employment.calendarId": ("employment", "calendarId", "int"),
+    "payroll.salary.payment": ("salary", "base", "amount"),
+    "payroll.salary.payPeriod": ("salary", "payPeriod", "text"),
+    "payroll.salary.payFrequency": ("salary", "payFrequency", "text"),
+}
+# A custom column of one of those tables (an inferred ID pattern: no tenant
+# checked so far has one). It is written under customColumns.
+CUSTOM_COLUMN = re.compile(
+    r"(work|payroll\.employment|payroll\.salary)\.customColumns\.(column_\w+)"
+)
+CUSTOM_COLUMN_TABLES = {
+    "work": "work",
+    "payroll.employment": "employment",
+    "payroll.salary": "salary",
+}
+# Dated fields HiBob takes but this tool cannot set yet.
+UNSUPPORTED_DATED = {
+    "payroll.employment.personalWorkingPatternType": (
+        "working patterns are not supported yet"
+    ),
+}
+# Fields outside the dated tables' own history that HiBob derives from a
+# table's rows (seen in a live tenant's metadata): shown, never written.
+DERIVED_PREFIXES = (
+    ("payroll.salary.", "HiBob derives it from the salary rows"),
+    ("payroll.employment.", "HiBob derives it from the employment rows"),
 )
 # Types the API cannot set, or this tool does not, and why.
 NOT_WRITABLE_TYPES = {
@@ -76,6 +109,7 @@ CALCULATED_FIELDS = frozenset(
         "address.activeEffectiveDate",
         "payroll.employment.activeEffectiveDate",
         "payroll.employment.fte",
+        "payroll.employment.hoursInDayNotWorked",
         "payroll.employment.weeklyHours",
         "payroll.salary.activeEffectiveDate",
         "employee.jobProfileCode",
@@ -119,6 +153,8 @@ class Route:
     kind: RouteKind
     table: str | None = None
     reason: str | None = None
+    column: str | None = None
+    wire: str | None = None
 
 
 def canonical_field_id(text: Any) -> str:
@@ -221,10 +257,24 @@ def route_for(field: PeopleField) -> Route:
                 reason=f"it is kept as {record} records, and adding those is "
                 "not supported yet",
             )
-    if field.historical:
-        for prefix, table in DATED_TABLE_PREFIXES:
+    if not field.historical:
+        for prefix, reason in DERIVED_PREFIXES:
             if field.id.startswith(prefix):
-                return Route("dated", table=table)
+                return Route("not_writable", reason=reason)
+    if field.historical:
+        if field.id in DATED_COLUMNS:
+            table, column, wire = DATED_COLUMNS[field.id]
+            return Route("dated", table=table, column=column, wire=wire)
+        custom = CUSTOM_COLUMN.fullmatch(field.id)
+        if custom:
+            return Route(
+                "dated",
+                table=CUSTOM_COLUMN_TABLES[custom[1]],
+                column=f"customColumns.{custom[2]}",
+                wire="text",
+            )
+        if field.id in UNSUPPORTED_DATED:
+            return Route("not_writable", reason=UNSUPPORTED_DATED[field.id])
         if field.id.startswith("address."):
             return Route("not_writable", reason="HiBob's API cannot change an address")
         return Route(
