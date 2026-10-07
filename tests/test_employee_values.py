@@ -94,6 +94,12 @@ def test_put_body_nests_by_path_with_root_fields_at_the_top() -> None:
         (True, True, True),
         (True, "true", True),
         ("M", None, False),
+        ({"id": "5"}, {"id": "5", "displayName": "Sam"}, True),
+        ({"id": "5"}, {"id": "9", "displayName": "Sam"}, False),
+        ({"id": "5"}, None, False),
+        ({"a": 1, "b": {"c": 2}}, {"a": 1.0, "b": {"c": 2}, "x": 9}, True),
+        ({"a": 1, "b": {"c": 2}}, {"a": 1, "b": {"c": 3}}, False),
+        ({"value": 5, "currency": "GBP"}, {"value": 5, "currency": "gbp"}, True),
         ("M", "L", False),
     ],
 )

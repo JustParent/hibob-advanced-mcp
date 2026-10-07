@@ -31,14 +31,21 @@ def put_body(values: dict[str, Any]) -> dict[str, Any]:
 
 def same_value(sent: Any, read: Any) -> bool:
     """Whether a read-back holds what was sent, allowing for HiBob's shapes:
-    a person read back as {"id", ...}, numbers as floats, lists reordered."""
+    a person read back as {"id", ...}, numbers as floats, lists reordered, and
+    dicts compared by what was sent."""
+    if isinstance(sent, dict) and isinstance(read, dict):
+        if "id" in sent:
+            return normalize_id(sent["id"]) == normalize_id(read.get("id"))
+        if "value" in sent:
+            return normalize_id(sent["value"]) == normalize_id(read.get("value")) and (
+                str(sent.get("currency", "")).upper()
+                == str(read.get("currency", "")).upper()
+            )
+        return all(
+            key in read and same_value(item, read[key]) for key, item in sent.items()
+        )
     if isinstance(read, dict) and "id" in read and not isinstance(sent, dict):
         read = read["id"]
-    if isinstance(sent, dict) and isinstance(read, dict):
-        return normalize_id(sent.get("value")) == normalize_id(read.get("value")) and (
-            str(sent.get("currency", "")).upper()
-            == str(read.get("currency", "")).upper()
-        )
     if isinstance(sent, list) and isinstance(read, list):
         return sorted(normalize_id(v) for v in sent) == sorted(
             normalize_id(v) for v in read
