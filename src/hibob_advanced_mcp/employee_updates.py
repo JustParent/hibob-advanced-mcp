@@ -25,16 +25,32 @@ from pydantic import Field
 from .cache import NamedListCache
 from .client import HiBobClient
 from .employee_directory import EMPLOYEE_REF_DESCRIPTION, find_employee
-from .employee_rows import put_body
+from .employee_rows import put_body, same_value
 from .employee_values import EMPLOYEE_TYPES, LIST_TYPES, NeedsInput, coerce_value
 from .envelopes import iso_date
-from .errors import format_exception
+from .errors import HiBobApiError, format_exception
 from .list_values import resolve_list_values
-from .people_api import named_list, people_fields
-from .people_fields import PeopleField, Route, find_fields, nearest_fields, route_for
+from .people_api import named_list, people_fields, read_employee
+from .people_fields import (
+    PeopleField,
+    Route,
+    find_fields,
+    nearest_fields,
+    read_field,
+    route_for,
+)
 from .references import NOTHING_WRITTEN
 
 PUT_PATH = "/people/{employee_id}"
+EMAIL_PATH = "/people/{employee_id}/email"
+START_DATE_PATH = "/employees/{employee_id}/start-date"
+# Email goes last: HiBob sends the employee a verification email.
+WRITE_ORDER = ("field", "start_date", "email")
+WRITE_NAMES = {"field": "fields", "start_date": "start date", "email": "work email"}
+VIA = {"field": "field", "start_date": "start date endpoint", "email": "email endpoint"}
+# HiBob's reads showed writes within 0.7 s on a live tenant (its docs allow up
+# to 20 s); a change still unseen after these waits is reported unconfirmed.
+READ_BACK_DELAYS = (0.0, 1.0, 3.0, 6.0)
 
 SleepFn = Callable[[float], Awaitable[None]]
 
@@ -189,32 +205,185 @@ def _check_schedule(day: str | None, changes: list[Change]) -> None:
         )
 
 
-def _applied(change: Change) -> dict[str, Any]:
+def _applied(change: Change, before: dict[str, Any]) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "field": change.field.qualified_label,
         "id": change.field.id,
         "to": change.given,
-        "via": "field",
+        "via": VIA[change.route.kind],
     }
     if change.value != change.given:
         entry["sent"] = change.value
+    if change.field.id in before:
+        entry["from"] = before[change.field.id]
     return entry
+
+
+async def _current(
+    api: HiBobClient, employee_id: str, changes: list[Change]
+) -> dict[str, Any]:
+    """What each field holds before the change, as a label where HiBob has one."""
+    try:
+        record = await read_employee(
+            api, employee_id, [c.field.id for c in changes], human_readable=True
+        )
+    except Exception:
+        return {}
+    before: dict[str, Any] = {}
+    for change in changes:
+        value, display = read_field(record, change.field.id, change.field.json_path)
+        before[change.field.id] = display if display not in (None, "") else value
+    return before
+
+
+async def _send(
+    api: HiBobClient,
+    employee_id: str,
+    kind: str,
+    group: list[Change],
+    reason: str | None,
+) -> bool:
+    """Send one write; False when HiBob reports it changed nothing (304)."""
+    path_id = quote(employee_id, safe="")
+    if kind == "field":
+        body = put_body({c.field.json_path: c.value for c in group})
+        response = await api.request_response(
+            "PUT", PUT_PATH.format(employee_id=path_id), json=body
+        )
+        return response.status_code != 304
+    if kind == "start_date":
+        start: dict[str, Any] = {"startDate": group[0].value}
+        if reason:
+            start["reason"] = reason
+        await api.post(START_DATE_PATH.format(employee_id=path_id), start)
+        return True
+    response = await api.request_response(
+        "PUT", EMAIL_PATH.format(employee_id=path_id), json={"email": group[0].value}
+    )
+    return response.status_code != 304
+
+
+async def _confirm(
+    api: HiBobClient,
+    employee_id: str,
+    written: list[Change],
+    result: dict[str, Any],
+    sleep: SleepFn,
+) -> None:
+    """Read the changes back, re-reading for a while before calling one lost."""
+    pending = list(written)
+    seen: dict[str, Any] = {}
+    try:
+        for delay in READ_BACK_DELAYS:
+            if delay:
+                await sleep(delay)
+            record = await read_employee(
+                api, employee_id, [c.field.id for c in pending]
+            )
+            still: list[Change] = []
+            for change in pending:
+                value, _ = read_field(record, change.field.id, change.field.json_path)
+                if not same_value(change.value, value):
+                    seen[change.field.id] = value
+                    still.append(change)
+            pending = still
+            if not pending:
+                return
+    except Exception as exc:
+        result["verification_error"] = format_exception(exc)
+        return
+    categories = sorted({c.field.category for c in pending if c.field.category})
+    result["unconfirmed"] = [
+        {
+            "field": c.field.qualified_label,
+            "sent": c.value,
+            "read": seen.get(c.field.id),
+        }
+        for c in pending
+    ]
+    result["unconfirmed_note"] = (
+        "HiBob may still be applying these (its reads can lag writes by up to 20 "
+        "seconds), or it ignored them because the service user cannot edit them"
+        + (
+            f" (People's data > People's fields: Edit on {', '.join(categories)})"
+            if categories
+            else ""
+        )
+        + ". Check again with hibob_get_employee."
+    )
+
+
+def _explain(exc: Exception, group: list[Change]) -> Exception:
+    """A permission refusal, naming the categories these fields are in."""
+    if not isinstance(exc, HiBobApiError) or exc.status_code != 403:
+        return exc
+    categories = sorted({c.field.category for c in group if c.field.category})
+    if not categories:
+        return exc
+    return HiBobApiError(
+        f"{exc} Grant Edit on {', '.join(categories)}, the categories these "
+        "fields are in.",
+        status_code=exc.status_code,
+        hibob_key=exc.hibob_key,
+        hibob_error=exc.hibob_error,
+    )
 
 
 async def _apply(
     api: HiBobClient, plan: Plan, reason: str | None, sleep: SleepFn
 ) -> dict[str, Any]:
     assert plan.employee is not None
-    employee_id = quote(plan.employee["id"], safe="")
-    body = put_body({c.field.json_path: c.value for c in plan.changes})
-    await api.request_response(
-        "PUT", PUT_PATH.format(employee_id=employee_id), json=body
-    )
-    return {
+    employee_id = plan.employee["id"]
+    before = await _current(api, employee_id, plan.changes)
+    result: dict[str, Any] = {
         "status": "updated",
         "employee": plan.employee,
-        "applied": [_applied(change) for change in plan.changes],
+        "applied": [],
+        "warnings": [],
     }
+    groups = [
+        (kind, [c for c in plan.changes if c.route.kind == kind])
+        for kind in WRITE_ORDER
+    ]
+    groups = [(kind, group) for kind, group in groups if group]
+    written: list[Change] = []
+    for index, (kind, group) in enumerate(groups):
+        labels = ", ".join(c.field.qualified_label for c in group)
+        try:
+            changed = await _send(api, employee_id, kind, group, reason)
+        except Exception as exc:
+            explained = _explain(exc, group)
+            if index == 0:
+                raise explained from exc
+            result["status"] = "partial"
+            result["failed"] = {
+                "write": WRITE_NAMES[kind],
+                "fields": [c.field.qualified_label for c in group],
+                "error": format_exception(explained),
+            }
+            result["not_sent"] = [
+                c.field.qualified_label for _, rest in groups[index + 1 :] for c in rest
+            ]
+            break
+        if not changed:
+            result["warnings"].append(
+                f"HiBob changed nothing for {labels}: they already had these values, "
+                "or the service user cannot change them this way."
+            )
+            continue
+        written.extend(group)
+        result["applied"].extend(_applied(c, before) for c in group)
+        if kind == "email":
+            result["warnings"].append(
+                "HiBob sends the employee a verification email at the new address."
+            )
+    if written:
+        await _confirm(api, employee_id, written, result, sleep)
+    elif result["status"] == "updated":
+        result["status"] = "unchanged"
+    if not result["warnings"]:
+        del result["warnings"]
+    return result
 
 
 def register_update_tools(
@@ -277,10 +446,18 @@ def register_update_tools(
         Confirm the changes with the user before calling.
 
         Returns:
-            str: JSON {"status": "updated", "employee", "applied": [{"field",
-            "id", "to", "sent"?, "via"}]}, or "needs_input" as above, or an
-            error beginning "Error:" for anything a question cannot fix
-            (nothing is written then either).
+            str: JSON {"status": "updated" | "unchanged" | "partial",
+            "employee", "applied": [{"field", "id", "from"?, "to", "sent"?,
+            "via"}], "warnings"?, "unconfirmed"?: [{"field", "sent", "read"}],
+            "unconfirmed_note"?, "failed"?, "not_sent"?}; or "needs_input" as
+            above; or an error beginning "Error:" (nothing written).
+
+        Writes go in this order, each sent once: plain fields (one PUT), start
+        date, then work email (HiBob emails the employee to verify it). If
+        one fails the rest are not sent ("partial"); nothing is rolled back.
+        Each change is read back; HiBob silently skips fields the service
+        user may not edit and its reads lag, so a change still not visible
+        after about 10 seconds is listed under "unconfirmed".
 
         Rate limit: 10 writes/minute.
         """

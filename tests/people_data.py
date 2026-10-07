@@ -234,6 +234,14 @@ class FakePeople:
             return_value=httpx.Response(404, json={})
         )
         self.put = mock_api.put(f"/people/{EMPLOYEE_ID}").mock(side_effect=self._put)
+        self.start_date_status = 200
+        self.email_status = 200
+        self.start_date = mock_api.post(f"/employees/{EMPLOYEE_ID}/start-date").mock(
+            side_effect=self._start_date
+        )
+        self.email = mock_api.put(f"/people/{EMPLOYEE_ID}/email").mock(
+            side_effect=self._email
+        )
 
     def _record(self, identifier: str) -> dict[str, Any] | None:
         for record in self.records.values():
@@ -253,4 +261,25 @@ class FakePeople:
             return httpx.Response(self.put_status)
         if self.apply_writes:
             _merge(self.records[EMPLOYEE_ID], jsonlib.loads(request.content))
+        return httpx.Response(200)
+
+    def _start_date(self, request: httpx.Request) -> httpx.Response:
+        self.writes.append("start date")
+        if self.start_date_status != 200:
+            return httpx.Response(
+                self.start_date_status, json={"error": "Bad start date"}
+            )
+        self.records[EMPLOYEE_ID]["work"]["startDate"] = jsonlib.loads(request.content)[
+            "startDate"
+        ]
+        return httpx.Response(200)
+
+    def _email(self, request: httpx.Request) -> httpx.Response:
+        self.writes.append("email")
+        email = jsonlib.loads(request.content)["email"]
+        if email == self.records[EMPLOYEE_ID]["email"]:
+            return httpx.Response(304)
+        if self.email_status != 200:
+            return httpx.Response(self.email_status, json={})
+        self.records[EMPLOYEE_ID]["email"] = email
         return httpx.Response(200)

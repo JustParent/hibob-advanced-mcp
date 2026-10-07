@@ -166,3 +166,142 @@ async def test_update_is_absent_in_read_only_mode(server_factory) -> None:
             "hibob_update_employee",
             {"employee": EMPLOYEE_ID, "changes": {"Mobile phone": "1"}},
         )
+
+
+async def test_writes_go_fields_then_start_date_then_email(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            changes={
+                "Email": "Janet@X.com",
+                "Work > Start date": "2024-04-01",
+                "Mobile phone": "1",
+            },
+            reason="Corrected",
+        )
+    )
+    assert fake.writes == ["fields", "start date", "email"]
+    assert json.loads(fake.start_date.calls.last.request.content) == {
+        "startDate": "2024-04-01",
+        "reason": "Corrected",
+    }
+    assert json.loads(fake.email.calls.last.request.content) == {"email": "janet@x.com"}
+    assert result["status"] == "updated"
+    vias = {a["id"]: a["via"] for a in result["applied"]}
+    assert vias == {
+        "home.mobilePhone": "field",
+        "work.startDate": "start date endpoint",
+        "root.email": "email endpoint",
+    }
+    assert any("verification" in w for w in result["warnings"])
+    assert "unconfirmed" not in result
+
+
+async def test_applied_changes_say_what_they_replaced(mock_api, mcp_server) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await _update(
+            mcp_server, employee=EMPLOYEE_ID, changes={"Shirt size": "Medium"}
+        )
+    )
+    assert result["applied"][0]["from"] == "Large"
+
+
+async def test_a_later_failure_is_partial_and_stops_the_rest(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    fake.start_date_status = 400
+    result = json.loads(
+        await _update(
+            mcp_server,
+            employee=EMPLOYEE_ID,
+            changes={
+                "Mobile phone": "1",
+                "Work > Start date": "2024-04-01",
+                "Email": "new@x.com",
+            },
+        )
+    )
+    assert fake.writes == ["fields", "start date"]
+    assert result["status"] == "partial"
+    assert [a["id"] for a in result["applied"]] == ["home.mobilePhone"]
+    assert result["failed"]["write"] == "start date"
+    assert "Bad start date" in result["failed"]["error"]
+    assert result["not_sent"] == ["Basic info > Email"]
+
+
+async def test_a_first_failure_is_an_error(mock_api, mcp_server) -> None:
+    fake = FakePeople(mock_api)
+    fake.put_status = 400
+    text = await _update(
+        mcp_server,
+        employee=EMPLOYEE_ID,
+        changes={"Mobile phone": "1", "Email": "new@x.com"},
+    )
+    assert text.startswith("Error:")
+    assert fake.writes == ["fields"]
+
+
+async def test_a_denied_write_names_the_categories_to_grant(
+    mock_api, mcp_server
+) -> None:
+    fake = FakePeople(mock_api)
+    fake.put_status = 403
+    text = await _update(
+        mcp_server,
+        employee=EMPLOYEE_ID,
+        changes={"Mobile phone": "1", "Shirt size": "Medium"},
+    )
+    assert text.startswith("Error:")
+    assert "Edit on Home, Work" in text
+
+
+async def test_304_means_nothing_changed(mock_api, mcp_server) -> None:
+    fake = FakePeople(mock_api)
+    fake.put_status = 304
+    result = json.loads(
+        await _update(mcp_server, employee=EMPLOYEE_ID, changes={"Mobile phone": "1"})
+    )
+    assert result["status"] == "unchanged"
+    assert result["applied"] == []
+    assert "changed nothing" in result["warnings"][0]
+
+
+async def test_same_email_in_other_case_is_unchanged(mock_api, mcp_server) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await _update(mcp_server, employee=EMPLOYEE_ID, changes={"Email": "JANE@x.com"})
+    )
+    assert result["status"] == "unchanged"
+
+
+async def test_a_change_hibob_ignores_is_unconfirmed_after_rereading(
+    mock_api, mcp_server, recorded_sleeps
+) -> None:
+    fake = FakePeople(mock_api)
+    fake.apply_writes = False
+    result = json.loads(
+        await _update(mcp_server, employee=EMPLOYEE_ID, changes={"Mobile phone": "1"})
+    )
+    assert result["status"] == "updated"
+    assert result["unconfirmed"] == [
+        {"field": "Home > Mobile phone", "sent": "1", "read": "07700 900000"}
+    ]
+    assert "Edit on Home" in result["unconfirmed_note"]
+    assert recorded_sleeps == [1.0, 3.0, 6.0]
+
+
+async def test_a_change_read_back_at_once_needs_no_wait(
+    mock_api, mcp_server, recorded_sleeps
+) -> None:
+    FakePeople(mock_api)
+    result = json.loads(
+        await _update(mcp_server, employee=EMPLOYEE_ID, changes={"Buddy": "Sam Jones"})
+    )
+    assert "unconfirmed" not in result
+    assert recorded_sleeps == []
