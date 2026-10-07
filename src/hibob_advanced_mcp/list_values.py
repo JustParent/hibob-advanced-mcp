@@ -246,3 +246,11 @@ def resolve_list_values(items: Any, values: list[Any]) -> dict[str, Any]:
         "unmatched": unmatched,
         "complete": not ambiguous and not unmatched,
     }
+
+
+def list_item_names(items: Any) -> dict[str, str]:
+    """Each submittable item's ID mapped to its name, through any tree."""
+    leaves: list[dict[str, Any]] = []
+    branches: list[dict[str, Any]] = []
+    _walk(items, "", leaves, branches)
+    return {leaf["id"]: leaf["name"] for leaf in leaves if leaf["id"] is not None}
