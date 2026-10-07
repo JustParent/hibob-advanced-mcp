@@ -6,7 +6,7 @@ to what HiBob stores, and asks back for anything it cannot pin down rather
 than guessing. Every check runs before the first write, and each write is
 sent once. Plain fields go in one PUT /people/{id}; the work email and start
 date have endpoints of their own. Columns of effective-dated tables (work,
-employment, salary) are refused until adding dated rows is supported.
+employment, salary) are written as new rows that copy the row before their date.
 """
 
 from __future__ import annotations
@@ -26,12 +26,24 @@ from .cache import NamedListCache
 from .client import HiBobClient
 from .employee_directory import EMPLOYEE_REF_DESCRIPTION, find_employee
 from .employee_rows import put_body, same_value
-from .employee_tables import to_wire
+from .employee_tables import (
+    TABLE_ORDER,
+    TABLES,
+    TableSpec,
+    build_row,
+    compare_row,
+    held_value,
+    later_conflicts,
+    restricted_message,
+    row_value,
+    split_rows,
+    to_wire,
+)
 from .employee_values import EMPLOYEE_TYPES, LIST_TYPES, NeedsInput, coerce_value
 from .envelopes import iso_date
 from .errors import HiBobApiError, format_exception
 from .list_values import resolve_list_values
-from .people_api import named_list, people_fields, read_employee
+from .people_api import named_list, people_fields, read_employee, read_table
 from .people_fields import (
     PeopleField,
     Route,
@@ -45,6 +57,12 @@ from .references import NOTHING_WRITTEN
 PUT_PATH = "/people/{employee_id}"
 EMAIL_PATH = "/people/{employee_id}/email"
 START_DATE_PATH = "/employees/{employee_id}/start-date"
+ROW_PATH = "/people/{employee_id}/{table}"
+# A table with no earlier salary row needs these to start one.
+FIRST_SALARY_COLUMNS = (
+    ("base", "the amount with its currency"),
+    ("payPeriod", "the pay period, for example Annual"),
+)
 # Email goes last: HiBob sends the employee a verification email.
 WRITE_ORDER = ("field", "start_date", "email")
 WRITE_NAMES = {"field": "fields", "start_date": "start date", "email": "work email"}
@@ -71,6 +89,23 @@ class Plan:
     changes: list[Change] = field(default_factory=list)
     questions: list[dict[str, Any]] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
+
+
+@dataclass
+class RowPlan:
+    table: TableSpec
+    day: str
+    body: dict[str, Any]
+    changes: list[Change]
+    before: dict[str, Any]
+
+
+@dataclass
+class Write:
+    name: str
+    kind: str
+    changes: list[Change]
+    row: RowPlan | None = None
 
 
 def _dump(payload: Any) -> str:
@@ -228,12 +263,12 @@ def _check_schedule(day: str | None, changes: list[Change]) -> None:
         )
 
 
-def _applied(change: Change, before: dict[str, Any]) -> dict[str, Any]:
+def _applied(change: Change, before: dict[str, Any], via: str) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "field": change.field.qualified_label,
         "id": change.field.id,
         "to": change.given,
-        "via": VIA[change.route.kind],
+        "via": via,
     }
     if change.value != change.given:
         entry["sent"] = change.value
@@ -259,22 +294,169 @@ async def _current(
     return before
 
 
-async def _send(
+def _fill_amounts(
+    who: str, table: TableSpec, group: list[Change], base: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    """Give each bare amount the currency of the row being copied, or ask."""
+    asks: list[dict[str, Any]] = []
+    for change in group:
+        amount = change.value
+        if not (
+            isinstance(amount, dict)
+            and "currency" in amount
+            and amount["currency"] is None
+        ):
+            continue
+        currency = ((base or {}).get("base") or {}).get("currency")
+        if currency:
+            change.value = {"value": amount["value"], "currency": currency}
+            continue
+        asks.append(
+            {
+                "argument": "changes",
+                "key": change.key,
+                "question": (
+                    f"{who} has no earlier {table.label} row to take a currency "
+                    f"from. In what currency is {change.field.label} "
+                    f"{amount['value']}? Give it as "
+                    f'{{"value": {amount["value"]}, "currency": "GBP"}}.'
+                ),
+            }
+        )
+    return asks
+
+
+def _first_salary_question(
+    who: str, day: str, columns: set[str], labels: list[str]
+) -> list[dict[str, Any]]:
+    missing = [what for column, what in FIRST_SALARY_COLUMNS if column not in columns]
+    if not missing:
+        return []
+    return [
+        {
+            "argument": "changes",
+            "question": (
+                f"{who} has no salary row before {day}, so a new one needs "
+                f"{' and '.join(missing)}. Add them to changes."
+            ),
+            "applies_to": labels,
+        }
+    ]
+
+
+def _later_question(
+    who: str, table: TableSpec, conflicts: list[dict[str, Any]], labels: list[str]
+) -> dict[str, Any]:
+    first = conflicts[0]
+    held = ", ".join(
+        f"{column} {value!r}" for column, value in first["columns"].items()
+    )
+    return {
+        "argument": "allow_later_rows",
+        "question": (
+            f"A {table.label} row from {first['effectiveDate']} still has {held}, so "
+            f"this change would only last until then. Go ahead anyway?"
+        ),
+        "applies_to": labels,
+        "later_rows": conflicts,
+    }
+
+
+async def _prepare_rows(
     api: HiBobClient,
-    employee_id: str,
-    kind: str,
-    group: list[Change],
+    plan: Plan,
+    day: str,
     reason: str | None,
+    allow_later_rows: bool,
+) -> tuple[list[RowPlan], list[dict[str, Any]], list[str]]:
+    """Read each table a change lands in and build the rows to add.
+
+    Reads only. Anything an answer cannot fix is raised as a ValueError;
+    questions and warnings are returned.
+    """
+    assert plan.employee is not None
+    who = plan.employee.get("name") or "the employee"
+    rows: list[RowPlan] = []
+    questions: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for key in TABLE_ORDER:
+        group = [c for c in plan.changes if c.route.table == key and c.route.column]
+        if not group:
+            continue
+        table = TABLES[key]
+        data = await read_table(api, plan.employee["id"], table.path)
+        hidden = restricted_message(table, data["restricted_columns"])
+        if hidden:
+            raise ValueError(f"{hidden} {NOTHING_WRITTEN}")
+        base, same_day, later = split_rows(data["rows"], day, table)
+        if same_day is not None:
+            raise ValueError(
+                f"{who} already has a {table.label} row dated {day}. This tool only "
+                f"adds rows, so choose a different effective date. {NOTHING_WRITTEN}"
+            )
+        if base is None and key != "salary":
+            raise ValueError(
+                f"{who} has no {table.label} row before {day}, so there is nothing "
+                f"to carry forward. {NOTHING_WRITTEN}"
+            )
+        labels = [c.field.qualified_label for c in group]
+        asks = _fill_amounts(who, table, group, base)
+        if base is None:
+            asks += _first_salary_question(
+                who, day, {str(c.route.column) for c in group}, labels
+            )
+        if asks:
+            questions.extend(asks)
+            continue
+        values = {str(c.route.column): c.value for c in group}
+        if base is not None and all(
+            same_value(value, held_value(base, column))
+            for column, value in values.items()
+        ):
+            warnings.append(
+                f"{who}'s {', '.join(c.field.label for c in group)} already hold "
+                f"these values in the {table.label} row dated "
+                f"{base['effectiveDate']}, so no {table.label} row was added."
+            )
+            continue
+        conflicts = later_conflicts(later, values)
+        if conflicts and not allow_later_rows:
+            questions.append(_later_question(who, table, conflicts, labels))
+            continue
+        if reason and table.reason_column is None:
+            warnings.append(
+                f"HiBob's {table.label} table has no reason column, so the reason "
+                f"was not recorded on the {table.label} row."
+            )
+        rows.append(
+            RowPlan(
+                table,
+                day,
+                build_row(base, values, day, table, reason),
+                group,
+                {c.field.id: row_value(base, str(c.route.column)) for c in group},
+            )
+        )
+    return rows, questions, warnings
+
+
+async def _send(
+    api: HiBobClient, employee_id: str, write: Write, reason: str | None
 ) -> bool:
     """Send one write; False when HiBob reports it changed nothing (304)."""
     path_id = quote(employee_id, safe="")
-    if kind == "field":
+    if write.row is not None:
+        path = ROW_PATH.format(employee_id=path_id, table=write.row.table.path)
+        await api.post(path, write.row.body)
+        return True
+    group = write.changes
+    if write.kind == "field":
         body = put_body({c.field.json_path: c.value for c in group})
         response = await api.request_response(
             "PUT", PUT_PATH.format(employee_id=path_id), json=body
         )
         return response.status_code != 304
-    if kind == "start_date":
+    if write.kind == "start_date":
         start: dict[str, Any] = {"startDate": group[0].value}
         if reason:
             start["reason"] = reason
@@ -284,6 +466,20 @@ async def _send(
         "PUT", EMAIL_PATH.format(employee_id=path_id), json={"email": group[0].value}
     )
     return response.status_code != 304
+
+
+def _note(categories: list[str]) -> str:
+    return (
+        "HiBob may still be applying these (its reads can lag writes by up to 20 "
+        "seconds), or it ignored them because the service user cannot edit them"
+        + (
+            f" (People's data > People's fields: Edit on {', '.join(categories)})"
+            if categories
+            else ""
+        )
+        + ". A column HiBob dropped from a new row is empty in it. Check again with "
+        "hibob_get_employee."
+    )
 
 
 async def _confirm(
@@ -316,24 +512,51 @@ async def _confirm(
         result["verification_error"] = format_exception(exc)
         return
     categories = sorted({c.field.category for c in pending if c.field.category})
-    result["unconfirmed"] = [
+    result.setdefault("unconfirmed", []).extend(
         {
             "field": c.field.qualified_label,
             "sent": c.value,
             "read": seen.get(c.field.id),
         }
         for c in pending
-    ]
-    result["unconfirmed_note"] = (
-        "HiBob may still be applying these (its reads can lag writes by up to 20 "
-        "seconds), or it ignored them because the service user cannot edit them"
-        + (
-            f" (People's data > People's fields: Edit on {', '.join(categories)})"
-            if categories
-            else ""
-        )
-        + ". Check again with hibob_get_employee."
     )
+    result.setdefault("unconfirmed_note", _note(categories))
+
+
+async def _confirm_row(
+    api: HiBobClient,
+    employee_id: str,
+    row: RowPlan,
+    result: dict[str, Any],
+    sleep: SleepFn,
+) -> None:
+    """Read a new row back and compare every column sent."""
+    problems: list[dict[str, Any]] = []
+    try:
+        for delay in READ_BACK_DELAYS:
+            if delay:
+                await sleep(delay)
+            data = await read_table(api, employee_id, row.table.path)
+            found = next(
+                (r for r in data["rows"] if r.get("effectiveDate") == row.day), None
+            )
+            problems = (
+                compare_row(row.body, found)
+                if found is not None
+                else [{"column": "(the new row)", "sent": row.day, "read": None}]
+            )
+            if not problems:
+                return
+    except Exception as exc:
+        result["verification_error"] = format_exception(exc)
+        return
+    label = f"{row.table.label} row from {row.day}"
+    categories = sorted({c.field.category for c in row.changes if c.field.category})
+    result.setdefault("unconfirmed", []).extend(
+        {"field": f"{label} > {p['column']}", "sent": p["sent"], "read": p["read"]}
+        for p in problems
+    )
+    result.setdefault("unconfirmed_note", _note(categories))
 
 
 def _explain(exc: Exception, group: list[Change]) -> Exception:
@@ -353,39 +576,48 @@ def _explain(exc: Exception, group: list[Change]) -> Exception:
 
 
 async def _apply(
-    api: HiBobClient, plan: Plan, reason: str | None, sleep: SleepFn
+    api: HiBobClient,
+    plan: Plan,
+    rows: list[RowPlan],
+    reason: str | None,
+    sleep: SleepFn,
+    warnings: list[str],
 ) -> dict[str, Any]:
     assert plan.employee is not None
     employee_id = plan.employee["id"]
-    before = await _current(api, employee_id, plan.changes)
+    others = [c for c in plan.changes if c.route.kind != "dated"]
+    before = await _current(api, employee_id, others) if others else {}
     result: dict[str, Any] = {
         "status": "updated",
         "employee": plan.employee,
         "applied": [],
-        "warnings": [],
+        "warnings": list(warnings),
     }
-    groups = [
-        (kind, [c for c in plan.changes if c.route.kind == kind])
-        for kind in WRITE_ORDER
-    ]
-    groups = [(kind, group) for kind, group in groups if group]
+    writes = [Write(f"{row.table.label} row", "row", row.changes, row) for row in rows]
+    for kind in WRITE_ORDER:
+        group = [c for c in others if c.route.kind == kind]
+        if group:
+            writes.append(Write(WRITE_NAMES[kind], kind, group))
     written: list[Change] = []
-    for index, (kind, group) in enumerate(groups):
-        labels = ", ".join(c.field.qualified_label for c in group)
+    added: list[RowPlan] = []
+    for index, write in enumerate(writes):
+        labels = ", ".join(c.field.qualified_label for c in write.changes)
         try:
-            changed = await _send(api, employee_id, kind, group, reason)
+            changed = await _send(api, employee_id, write, reason)
         except Exception as exc:
-            explained = _explain(exc, group)
+            explained = _explain(exc, write.changes)
             if index == 0:
                 raise explained from exc
             result["status"] = "partial"
             result["failed"] = {
-                "write": WRITE_NAMES[kind],
-                "fields": [c.field.qualified_label for c in group],
+                "write": write.name,
+                "fields": [c.field.qualified_label for c in write.changes],
                 "error": format_exception(explained),
             }
             result["not_sent"] = [
-                c.field.qualified_label for _, rest in groups[index + 1 :] for c in rest
+                c.field.qualified_label
+                for rest in writes[index + 1 :]
+                for c in rest.changes
             ]
             break
         if not changed:
@@ -394,15 +626,31 @@ async def _apply(
                 "or the service user cannot change them this way."
             )
             continue
-        written.extend(group)
-        result["applied"].extend(_applied(c, before) for c in group)
-        if kind == "email":
+        if write.row is not None:
+            added.append(write.row)
+            via = f"{write.row.table.label} row from {write.row.day}"
+            result["applied"].extend(
+                _applied(c, write.row.before, via) for c in write.changes
+            )
+            continue
+        written.extend(write.changes)
+        result["applied"].extend(
+            _applied(c, before, VIA[write.kind]) for c in write.changes
+        )
+        if write.kind == "email":
             result["warnings"].append(
                 "HiBob sends the employee a verification email at the new address."
             )
+    if added:
+        result["rows_added"] = [
+            {"table": r.table.key, "effective_date": r.day, "sent": r.body}
+            for r in added
+        ]
+    for row in added:
+        await _confirm_row(api, employee_id, row, result, sleep)
     if written:
         await _confirm(api, employee_id, written, result, sleep)
-    elif result["status"] == "updated":
+    elif not added and result["status"] == "updated":
         result["status"] = "unchanged"
     if not result["warnings"]:
         del result["warnings"]
@@ -446,17 +694,33 @@ def register_update_tools(
             str | None,
             Field(
                 description=(
-                    "YYYY-MM-DD, for changes HiBob keeps a dated history of. "
-                    "Plain fields change immediately and cannot be scheduled."
+                    "YYYY-MM-DD. Needed for job title, department, site, manager, "
+                    "employment and salary changes, which HiBob keeps as dated "
+                    "rows; the tool asks for it if missing. Plain fields change "
+                    "immediately and cannot be scheduled."
                 )
             ),
         ] = None,
         reason: Annotated[
             str | None,
             Field(
-                description="Why the change is made; recorded with a start-date change."
+                description=(
+                    "Why the change is made; recorded on new work and employment "
+                    "rows and with a start-date change (HiBob's salary table has "
+                    "no reason column)."
+                )
             ),
         ] = None,
+        allow_later_rows: Annotated[
+            bool,
+            Field(
+                description=(
+                    "True to go ahead when a later row in a dated table still holds "
+                    "a different value in a column being changed, which means this "
+                    "change only lasts until that row's date. Ask the user first."
+                )
+            ),
+        ] = False,
     ) -> str:
         """Change an employee's data. Each write is sent once, never retried.
 
@@ -471,16 +735,29 @@ def register_update_tools(
         Returns:
             str: JSON {"status": "updated" | "unchanged" | "partial",
             "employee", "applied": [{"field", "id", "from"?, "to", "sent"?,
-            "via"}], "warnings"?, "unconfirmed"?: [{"field", "sent", "read"}],
+            "via"}], "rows_added"?: [{"table", "effective_date", "sent"}],
+            "warnings"?, "unconfirmed"?: [{"field", "sent", "read"}],
             "unconfirmed_note"?, "failed"?, "not_sent"?}; or "needs_input" as
             above; or an error beginning "Error:" (nothing written).
 
-        Writes go in this order, each sent once: plain fields (one PUT), start
-        date, then work email (HiBob emails the employee to verify it). If
-        one fails the rest are not sent ("partial"); nothing is rolled back.
-        Each change is read back; HiBob silently skips fields the service
-        user may not edit and its reads lag, so a change still not visible
-        after about 10 seconds is listed under "unconfirmed".
+        Job title, department, site, manager, employment terms and salary are
+        HiBob dated rows, and HiBob replaces a row wholesale, so each is
+        written as a new row dated effective_date that copies the row before
+        that date with the change laid over it. The tool asks for a missing
+        effective_date and never assumes today. It refuses, writing nothing,
+        if the table cannot be read in full, a row already exists on that
+        date (it never edits a row), or there is nothing earlier to copy
+        (except a first salary row, which needs the amount with its currency
+        and the pay period). A later row that still holds a different value
+        comes back as a question; answer it with allow_later_rows=true.
+
+        Writes go in this order, each sent once: new rows (work, employment,
+        salary), plain fields (one PUT), start date, then work email (HiBob
+        emails the employee to verify it). If one fails the rest are not sent
+        ("partial"); nothing is rolled back. Each change is read back; HiBob
+        silently skips fields the service user may not edit and its reads
+        lag, so a change still not visible after about 10 seconds is listed
+        under "unconfirmed".
 
         Rate limit: 10 writes/minute.
         """
@@ -504,11 +781,20 @@ def register_update_tools(
                     }
                 )
             _check_schedule(day, [c for c in plan.changes if c.route.kind != "dated"])
-            if dated:
-                raise ValueError(
-                    "Adding rows to HiBob's dated tables is not supported yet. "
-                    f"{NOTHING_WRITTEN}"
+            rows: list[RowPlan] = []
+            warnings: list[str] = []
+            if dated and day is not None:
+                rows, questions, warnings = await _prepare_rows(
+                    api, plan, day, reason, allow_later_rows
                 )
-            return _dump(await _apply(api, plan, reason, sleep))
+                if questions:
+                    return _dump(
+                        {
+                            "status": "needs_input",
+                            "employee": plan.employee,
+                            "questions": questions,
+                        }
+                    )
+            return _dump(await _apply(api, plan, rows, reason, sleep, warnings))
         except Exception as exc:
             return format_exception(exc)

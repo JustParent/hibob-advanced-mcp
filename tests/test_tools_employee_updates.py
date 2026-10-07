@@ -368,18 +368,3 @@ async def test_a_field_given_twice_is_refused(mock_api, mcp_server) -> None:
     assert "given twice" in text
     assert "Nothing was written" in text
     assert fake.writes == []
-
-
-async def test_a_dated_change_with_a_date_is_not_written_until_rows_are_supported(
-    mock_api, mcp_server
-) -> None:
-    fake = FakePeople(mock_api)
-    text = await _update(
-        mcp_server,
-        employee=EMPLOYEE_ID,
-        changes={"Job title": "Head of Data"},
-        effective_date="2026-11-01",
-    )
-    assert text.startswith("Error:")
-    assert "not supported yet" in text
-    assert fake.writes == []

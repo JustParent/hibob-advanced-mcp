@@ -230,10 +230,16 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             "lifecycleReasonType lists."
         )
     elif status == 400 and "/people/" in path:
+        duplicate = bool(detail) and "duplicate effective date" in str(detail).lower()
         message = (
             "HiBob rejected the employee change (400)"
             + (f": {detail.rstrip('.')}." if detail else ".")
-            + " Check field IDs and values with hibob_list_employee_fields."
+            + (
+                " A row already exists on that date; this server only adds rows, "
+                "so use a different effective date."
+                if duplicate
+                else " Check field IDs and values with hibob_list_employee_fields."
+            )
         )
     elif (
         status == 400

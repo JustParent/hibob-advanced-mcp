@@ -203,3 +203,16 @@ def test_400_on_employee_data_points_at_the_employee_fields_tool() -> None:
     assert "Unknown field ID: /work/site" in message
     assert "hibob_list_employee_fields" in message
     assert "hibob_list_workforce_fields" not in message
+
+
+def test_400_for_a_duplicate_effective_date_says_rows_are_only_added() -> None:
+    body = {
+        "key": "exception.history.duplicated.bulk",
+        "error": "Duplicate effective date for work, please update the effective date.",
+    }
+    with pytest.raises(HiBobApiError) as excinfo:
+        raise_for_hibob_error(_response(400, body, url=f"{PEOPLE_URL}/work"))
+    message = str(excinfo.value)
+    assert "Duplicate effective date for work" in message
+    assert "only adds rows" in message
+    assert "hibob_list_employee_fields" not in message

@@ -8,6 +8,7 @@ no "calculated" flag, work.site is plain text beside the dated work.siteId
 from __future__ import annotations
 
 import copy
+import datetime as dt
 import json as jsonlib
 from typing import Any
 
@@ -234,7 +235,7 @@ DIRECTORY = {
         SAM,
         {"id": "77", "displayName": "Alex Lee", "email": "alex.lee@x.com"},
         {"id": "78", "displayName": "Alex Lee", "email": "alex.lee2@x.com"},
-        ({"id": "79", "displayName": "Priya Patel", "email": "priya@x.com"},),
+        {"id": "79", "displayName": "Priya Patel", "email": "priya@x.com"},
     ]
 }
 LISTS: dict[str, dict[str, Any]] = {
@@ -330,6 +331,114 @@ def _merge(target: dict[str, Any], patch: dict[str, Any]) -> None:
             target[key] = value
 
 
+PATTERN = {
+    "workingPatternType": "hourly",
+    "days": {
+        "monday": 8,
+        "tuesday": 8,
+        "wednesday": 8,
+        "thursday": 8,
+        "friday": 8,
+        "saturday": 0,
+        "sunday": 0,
+    },
+    "hoursPerDay": 8,
+    "workingPatternId": 0,
+}
+SITES = {
+    2606110: "London (Demo)",
+    2606111: "New York (Demo)",
+    2606112: "Madrid (Demo)",
+}
+# Every column a row has; HiBob stores any a write leaves out as null.
+TABLE_COLUMNS = {
+    "work": ("title", "department", "site", "siteId", "reportsTo", "workChangeType"),
+    "employment": (
+        "contract",
+        "type",
+        "salaryPayType",
+        "flsaCode",
+        "calendarId",
+        "calendarName",
+        "personalWorkingPatternType",
+        "workingPattern",
+        "standardWorkingPattern",
+        "standardWorkingPatternId",
+        "siteWorkingPattern",
+        "actualWorkingPattern",
+        "hoursInDayNotWorked",
+        "fte",
+        "weeklyHours",
+    ),
+    "salaries": ("base", "payPeriod", "payFrequency"),
+}
+
+
+def row_header(row_id: int, day: str, reason: str | None = None) -> dict[str, Any]:
+    return {
+        "id": row_id,
+        "effectiveDate": day,
+        "endEffectiveDate": None,
+        "isCurrent": False,
+        "canBeDeleted": True,
+        "change": {"reason": reason, "changedBy": None, "changedById": "1"},
+        "creationDate": None,
+        "modificationDate": day,
+        "activeEffectiveDate": day,
+    }
+
+
+def _renumber(rows: list[dict[str, Any]]) -> None:
+    rows.sort(key=lambda row: row["effectiveDate"])
+    today = dt.date.today().isoformat()
+    current = None
+    for row in rows:
+        row["isCurrent"] = False
+        if row["effectiveDate"] <= today:
+            current = row
+    if current is not None:
+        current["isCurrent"] = True
+
+
+def _start_tables() -> dict[str, list[dict[str, Any]]]:
+    work = {
+        **row_header(1, "2024-03-01"),
+        **{column: None for column in TABLE_COLUMNS["work"]},
+        "title": "101",
+        "department": "201",
+        "site": SITES[2606110],
+        "siteId": 2606110,
+        "reportsTo": {
+            "id": MANAGER_ID,
+            "firstName": "Sam",
+            "surname": "Jones",
+            "email": "sam@x.com",
+            "displayName": "Sam Jones",
+        },
+        "workChangeType": "New Employee",
+        "customColumns": {},
+    }
+    employment = {
+        **row_header(1, "2024-03-01"),
+        **{column: None for column in TABLE_COLUMNS["employment"]},
+        "contract": "Full time",
+        "siteWorkingPattern": PATTERN,
+        "actualWorkingPattern": PATTERN,
+        "hoursInDayNotWorked": 8,
+        "fte": 100,
+        "weeklyHours": 40,
+        "customColumns": {},
+    }
+    tables: dict[str, list[dict[str, Any]]] = {
+        "work": [work],
+        "employment": [employment],
+        "salaries": [],
+    }
+    for rows in tables.values():
+        _renumber(rows)
+    return tables
+
+
 class FakePeople:
     """HiBob's people API, enough for the employee tools.
 
@@ -373,6 +482,19 @@ class FakePeople:
         self.email = mock_api.put(f"/people/{EMPLOYEE_ID}/email").mock(
             side_effect=self._email
         )
+        self.tables = _start_tables()
+        self.restricted: dict[str, dict[str, Any]] = {}
+        self.row_status: dict[str, int] = {}
+        self.drop_on_write: dict[str, set[str]] = {}
+        self.posted: list[tuple[str, dict[str, Any]]] = []
+        self.reads: list[str] = []
+        for path in self.tables:
+            mock_api.get(f"/people/{EMPLOYEE_ID}/{path}").mock(
+                side_effect=self._table_read(path)
+            )
+            mock_api.post(f"/people/{EMPLOYEE_ID}/{path}").mock(
+                side_effect=self._table_write(path)
+            )
 
     def _record(self, identifier: str) -> dict[str, Any] | None:
         for record in self.records.values():
@@ -414,3 +536,65 @@ class FakePeople:
             return httpx.Response(self.email_status, json={})
         self.records[EMPLOYEE_ID]["email"] = email
         return httpx.Response(200)
+
+    def add_row(self, path: str, day: str, **columns: Any) -> dict[str, Any]:
+        rows = self.tables[path]
+        row = {
+            **row_header(max((r["id"] for r in rows), default=0) + 1, day),
+            **{column: None for column in TABLE_COLUMNS[path]},
+            "customColumns": {},
+            **columns,
+        }
+        rows.append(row)
+        _renumber(rows)
+        return row
+
+    def _table_read(self, path: str):
+        def handler(request: httpx.Request) -> httpx.Response:
+            self.reads.append(path)
+            return httpx.Response(
+                200,
+                json={
+                    "values": self.tables[path],
+                    "restricted_columns": self.restricted.get(path, {}),
+                },
+            )
+
+        return handler
+
+    def _table_write(self, path: str):
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = jsonlib.loads(request.content)
+            self.writes.append(f"row:{path}")
+            self.posted.append((path, body))
+            status = self.row_status.get(path, 200)
+            if status != 200:
+                return httpx.Response(
+                    status,
+                    json={
+                        "key": "exception.history.duplicated.bulk",
+                        "error": "Duplicate effective date for work, please "
+                        "update the effective date.",
+                    },
+                )
+            columns = TABLE_COLUMNS[path]
+            stored: dict[str, Any] = {column: None for column in columns}
+            stored.update({k: v for k, v in body.items() if k in columns})
+            custom = dict(body.get("customColumns") or {})
+            custom.update({k: v for k, v in body.items() if k.startswith("column_")})
+            stored["customColumns"] = custom
+            if stored.get("siteId") is not None and not stored.get("site"):
+                stored["site"] = SITES.get(stored["siteId"])
+            for column in self.drop_on_write.get(path, ()):
+                stored[column] = None
+            rows = self.tables[path]
+            header = row_header(
+                max((r["id"] for r in rows), default=0) + 1,
+                body["effectiveDate"],
+                body.get("reason"),
+            )
+            rows.append({**header, **stored})
+            _renumber(rows)
+            return httpx.Response(200)
+
+        return handler
