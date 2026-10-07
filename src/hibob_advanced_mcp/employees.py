@@ -27,6 +27,7 @@ from .employee_directory import (
     describe_candidates,
     find_employee,
 )
+from .employee_record_adds import register_record_tools
 from .employee_records import (
     RECORD_TYPES,
     custom_record_type,
@@ -548,5 +549,9 @@ def register_employee_tools(
             return format_exception(exc)
 
     register_update_tools(
+        mcp, client_factory=client_factory, cache=cache, sleep=sleep or asyncio.sleep
+    )
+
+    register_record_tools(
         mcp, client_factory=client_factory, cache=cache, sleep=sleep or asyncio.sleep
     )

@@ -115,7 +115,7 @@ def _dump(payload: Any) -> str:
     return json.dumps(payload, indent=2, default=str)
 
 
-async def _resolve_value(
+async def resolve_value(
     api: HiBobClient,
     cache: NamedListCache,
     target: PeopleField,
@@ -222,7 +222,7 @@ async def _plan(
             )
             continue
         try:
-            value = await _resolve_value(
+            value = await resolve_value(
                 api, cache, target, given, bare_amount_ok=route.wire == "amount"
             )
             if route.kind == "dated":

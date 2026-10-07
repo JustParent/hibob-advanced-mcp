@@ -75,7 +75,7 @@ async def test_server_lists_every_tool_over_stdio() -> None:
         return {tool.name for tool in (await session.list_tools()).tools}
 
     names = await _with_session(_params(), body)
-    assert len(names) == 32
+    assert len(names) == 33
     assert "hibob_search_positions" in names
     assert "hibob_create_position" in names
     assert "hibob_download_report" in names
@@ -139,7 +139,7 @@ async def test_server_still_works_while_warning_on_stderr() -> None:
         body,
     )
 
-    assert tool_count == 32
+    assert tool_count == 33
     # The call fails because the host is unroutable, not because of bad framing.
     assert text.startswith("Error:")
 

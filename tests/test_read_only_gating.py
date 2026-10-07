@@ -41,6 +41,7 @@ WRITE_TOOLS = {
     "hibob_update_position_budget",
     "hibob_complete_task",
     "hibob_update_employee",
+    "hibob_add_employee_record",
     "hibob_terminate_employee",
 }
 
