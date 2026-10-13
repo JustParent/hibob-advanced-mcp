@@ -47,6 +47,26 @@ REPORTS_PERMISSION = (
     "plus People's Data access for the report's employees and fields; reports "
     "with formulas also need Features > Formulas in Grids > View formulas in grids"
 )
+TIMEOFF_SETTINGS_PERMISSION = (
+    "Features > Time off > Settings > Manage company's time off settings"
+)
+# HiBob's reference names only this permission for request reads, creates and
+# cancellations, though its label stops at requests not yet approved.
+TIMEOFF_REQUESTS_PERMISSION = (
+    "People's Data > Time off > Requests > Create, edit and cancel people's "
+    "requests that haven't been approved yet; cancelling an approved request "
+    "may also need permission over approved requests"
+)
+TIMEOFF_WHOS_OUT_PERMISSION = (
+    "People's Data > Time off > See who's out today > See who's out, plus See "
+    "who's out because of a private policy or policies with a custom name for "
+    "private requests (or pass include_private false), and the Requests "
+    "permission to create, edit and cancel requests that haven't been approved "
+    "yet for pending ones"
+)
+TIMEOFF_BALANCE_PERMISSION = (
+    "People's Data > Time off > Balance > See people's time off and sick leave balances"
+)
 
 RATE_LIMITS_SUMMARY = (
     "position/opening/budget writes: 10/min, searches: 100/min, metadata: 50/min"
@@ -84,6 +104,15 @@ def _parse_error_body(response: httpx.Response) -> tuple[str | None, str | None]
     if isinstance(body, dict):
         key = body.get("key")
         error = body.get("error") or body.get("message") or body.get("errorMessage")
+        args = body.get("args")
+        if isinstance(error, str) and isinstance(args, list):
+            # Time off puts the particulars in args: {"error": "Conflicts with
+            # request/s which cannot be overridden:", "args": ["Pending approval
+            # Holiday request from 23/11/2026 (morning)"]}. Some args repeat
+            # what the error already says.
+            extra = [str(arg) for arg in args if str(arg) not in error]
+            if extra:
+                error = f"{error.rstrip()} {'; '.join(extra)}"
         errors = body.get("errors")
         if not isinstance(error, str) and isinstance(errors, dict):
             # HiBob names each field it rejects, keyed by field ID:
@@ -126,6 +155,8 @@ def _permission_for(path: str) -> str:
     """
     if path.startswith("/v1/tasks") or path == "/tasks":
         return TASKS_PERMISSION
+    if "/timeoff/" in path:
+        return _timeoff_permission(path)
     if "/employees/" in path:
         return EMPLOYEE_LIFECYCLE_PERMISSION
     if "/people/" in path:
@@ -135,6 +166,19 @@ def _permission_for(path: str) -> str:
     if "/workforce-planning/" in path and "/position-budget" in path:
         return BUDGET_PERMISSION_PATH
     return MANAGE_POSITIONS_PERMISSION_PATH
+
+
+def _timeoff_permission(path: str) -> str:
+    """The permission a time off request needs, by endpoint."""
+    if "/balance" in path:
+        return TIMEOFF_BALANCE_PERMISSION
+    if path.endswith("/requests"):
+        return f"{TIMEOFF_SETTINGS_PERMISSION}, and {TIMEOFF_REQUESTS_PERMISSION}"
+    if "/requests/" in path and "/employees/" in path:
+        return TIMEOFF_REQUESTS_PERMISSION
+    if "/whosout" in path or "/outtoday" in path or "/requests/changes" in path:
+        return TIMEOFF_WHOS_OUT_PERMISSION
+    return TIMEOFF_SETTINGS_PERMISSION
 
 
 def _retry_after_seconds(response: httpx.Response) -> str:
@@ -187,6 +231,11 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             "hibob_get_company_named_lists without list_name to see the "
             "available list names."
         )
+    elif status == 404 and "/timeoff/" in path:
+        message = (
+            f"HiBob returned 404 for {path}. Check the employee and request IDs - "
+            "hibob_list_timeoff_requests lists requests with their IDs."
+        )
     elif status == 404 and "/tasks" in path:
         message = (
             f"HiBob returned 404 for {path}. Check the task or employee ID - "
@@ -220,6 +269,13 @@ def raise_for_hibob_error(response: httpx.Response) -> None:
             + (f": {detail.rstrip('.')}." if detail else ".")
             + " Check the report ID, format and locale. Configure report filters "
             "in Bob's UI; the download API does not accept change-date filters."
+        )
+    elif status == 400 and "/timeoff/" in path:
+        message = (
+            "HiBob refused the time off request (400)"
+            + (f": {detail.rstrip('.')}." if detail else ".")
+            + " Policy types, their units and reason codes are in "
+            "hibob_list_timeoff_policy_types."
         )
     elif status == 400 and "/employees/" in path and path.endswith("/terminate"):
         message = (

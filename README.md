@@ -1,8 +1,8 @@
 # hibob-advanced-mcp
 
-An MCP server for HiBob's [Workforce Planning API](https://apidocs.hibob.com/reference/workforce-planning), tasks, employee termination, and [Reports API](https://apidocs.hibob.com/reference/reports).
+An MCP server for HiBob's [Workforce Planning API](https://apidocs.hibob.com/reference/workforce-planning), tasks, employee termination, [time off](https://apidocs.hibob.com/docs/explore-time-off-api), and [Reports API](https://apidocs.hibob.com/reference/reports).
 
-This complements a standard HiBob HRIS integration. Common HRIS functionality (people, time off, documents) belongs in the main integration; this server adds planned positions, openings, budgets, tasks and access to saved reports.
+This complements a standard HiBob HRIS integration. Common HRIS functionality (people, documents) belongs in the main integration; this server adds planned positions, openings, budgets, tasks, time off and access to saved reports.
 
 It runs over stdio, is installable with `uvx`, and authenticates with a HiBob **API service user**.
 
@@ -19,6 +19,8 @@ It runs over stdio, is installable with `uvx`, and authenticates with a HiBob **
 
    Reading and changing employee data (`hibob_get_employee`, `hibob_update_employee`) needs **People's data → People's fields**: **View** on the categories read, **Edit** on those changed, and **View history** to read a table's earlier rows. HiBob skips fields the service user may not edit without saying so; the update tool reads every change back to catch that.
 
+   Time off needs **People's Data → Time off**: **See who's out today → See who's out** to list requests (plus **See who's out because of a private policy or policies with a custom name** for private ones), **Balance → See people's time off and sick leave balances** for balances, and **Requests → Create, edit and cancel people's requests that haven't been approved yet** to read a request by ID, book and cancel (and to list pending requests). Policy types, and booking, also need **Features → Time off → Settings → Manage company's time off settings**. HiBob's label stops at requests not yet approved, yet the demo tenant's service user cancelled approved ones; check this on your own account if approved leave must be cancellable.
+
    Reports need **Features → Reports → View reports according to people's data access rights**, plus access to the employees and fields included in each report. Reports containing formulas also need **Features → Formulas in Grids → View formulas in grids**. Reports do not require the workforce planning permission.
 
    Service users have no permissions by default. The server identifies the relevant permission when an endpoint denies access.
@@ -33,7 +35,7 @@ Read-only workforce planning use still needs the same workforce planning grant. 
 | `HIBOB_SERVICE_USER_ID` | yes | Service user ID (the Basic auth username). |
 | `HIBOB_SERVICE_USER_TOKEN` | yes | Service user token (the Basic auth password). |
 | `HIBOB_API_HOST` | no | Defaults to production (`api.hibob.com`). Set `api.sandbox.hibob.com` for HiBob's sandbox. A pasted URL such as `https://api.sandbox.hibob.com/v1` is accepted; only the hostname is used. |
-| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the twenty read tools; the thirteen write tools are not exposed at all. |
+| `HIBOB_READ_ONLY` | no | `true`, `1`, `yes` or `on` registers only the twenty-five read tools; the fifteen write tools are not exposed at all. |
 | `HIBOB_HIDE_PEOPLE_DATA` | no | `true`, `1`, `yes` or `on` limits what the employee tools show from HiBob's people endpoints to name, work email, work phone and work site. See below. |
 
 Standard proxy variables (`HTTPS_PROXY`, `ALL_PROXY`) are honoured. A SOCKS5 proxy needs the optional `socks` extra — see the install line below.
@@ -46,6 +48,7 @@ Finding a person by name still works with `HIBOB_HIDE_PEOPLE_DATA` on, so that `
 - The job title is left out of the employee shown in every employee tool.
 - `hibob_update_employee` and `hibob_add_employee_record` still write, but do not show what a change replaced (`from`) or what HiBob holds in place of a change it did not keep (`read`).
 - `hibob_list_employee_fields` is unchanged: it describes fields and tables but holds no employee data.
+- Of the time off tools only `hibob_list_timeoff_policy_types` is registered: the rest show who is off, sickness included.
 
 Not covered: the workforce planning tools, tasks (`hibob_list_open_tasks`, `hibob_get_employee_tasks`) and reports. Reports can include any people field, so keep their separate HiBob permission off the service user if it must not reach that data. The lock limits what this server shows; the service user's HiBob permissions still decide what HiBob can return.
 
@@ -146,6 +149,11 @@ Field IDs are passed as flat mappings, for example `{"/position/fte": 100}`. The
 | `hibob_download_report` | `GET /company/reports/{reportId}/download`, JSON/CSV/XLSX | 20/min |
 | `hibob_generate_report` | `GET /company/reports/{reportId}/download-async`, CSV/XLSX | 20/min |
 | `hibob_download_generated_report` | `GET /company/reports/download/{reportName}`, one poll | 20/min |
+| `hibob_list_timeoff_policy_types` | `GET /timeoff/policy-types`; for one type also `GET /timeoff/policy-types/{type}`, its policies and reason codes | — |
+| `hibob_list_timeoff_requests` | `GET /timeoff/whosout` (approved and pending only), optionally narrowed to one employee | — |
+| `hibob_get_timeoff_request` | `GET /timeoff/employees/{id}/requests/{requestId}`, any status | — |
+| `hibob_get_timeoff_balance` | `GET /timeoff/employees/{id}/balance` on a day (today by default) | — |
+| `hibob_get_timeoff_changes` | `GET /timeoff/requests/changes`, at most six months back | — |
 
 Search results come back as `{"count": N, "entries": [{"values": {...}, "display": {...}}]}`. `values` holds the raw values including the IDs the write tools need; `display` holds HiBob's human-readable labels. The opening and budget searches are cursor-paginated and return `has_more` and `next_cursor`; the budget search takes a `limit` up to 1000 (HiBob rejects anything larger), which is one page for most companies. **Position search has no pagination** and ignores `limit` entirely, so request only the fields you need and filter where you can.
 
@@ -184,6 +192,8 @@ Seven of the read tools do work HiBob's API cannot do in one request:
 | `hibob_update_employee` | `PUT /people/{id}`, `POST /employees/{id}/start-date`, `PUT /people/{id}/email`, each sent once and read back | 10/min (email, start date 20/min) |
 | `hibob_add_employee_record` | `POST /people/{id}/<table>` (or `POST /people/custom-tables/{id}/{table}`), sent once; the type's rows are read first and again afterwards | 10/min |
 | `hibob_terminate_employee` | `POST /employees/{id}/terminate`, sent once and never retried; `POST /people/search` and `GET /company/named-lists/{name}` first | 10/min |
+| `hibob_submit_timeoff_request` | `POST /timeoff/employees/{id}/requests` in days, sent once, then read back | — |
+| `hibob_cancel_timeoff_request` | `GET` then `DELETE /timeoff/employees/{id}/requests/{requestId}`, sent once, then read back | — |
 
 Every tool that takes a position or an opening accepts it either as its numeric ID or as the name HiBob shows: `P-0000000368` for a position, `O-6853240227` for an opening. A name costs one search before the write, which comes out of the search limit rather than the write limit; a name that matches nothing, or that HiBob has let two records share, is refused rather than guessed at. Openings are always looked up before an update or delete, whether given by ID or by name, because the lookup returns the position each opening belongs to. A write addressed under the wrong position, such as `O-6853240227` beneath the ID of another position, is refused before anything is sent. Budgets have no name and need none: a position carries its budget's ID as `/position/budget`, so `hibob_update_position_budget` finds the budget from the position, and its `budget_id` argument is optional. If a `budget_id` is given it must be that position's budget, so an ID carried over from another position is refused; a second budget for a position that already has one is refused likewise. Each result reports the numeric `position_id` (and `opening_id` or `budget_id`) actually written to.
 
@@ -198,6 +208,21 @@ Writes are limited to ten calls a minute, so required fields are validated befor
 `hibob_update_employee` takes changes as field labels or IDs mapped to values given by name, and works out where each goes: plain fields in one `PUT /people/{id}`, the work email and start date through their own endpoints. List values and people (by name, email or ID) are matched exactly, ignoring case; anything unmatched or ambiguous, and an amount without a currency, comes back as `{"status": "needs_input", "questions": [...]}` with candidates and nothing written. Fields HiBob keeps a dated history of need an `effective_date`: job title, department, site, manager ("Manager" and "Reports to" are the same column; give only one), change type (Promotion, Lateral Move, ...: without it HiBob tags the new row "Other"); employment contract, type, pay type, FLSA code and holiday calendar; salary amount, pay period and frequency; home address (lines 1 and 2, city, post code, state or region, country). Without one the tool asks for it and never assumes today. Each such change adds a **new row** to HiBob's work, employment, salary or address table. HiBob replaces a row wholesale (a column left out is stored empty), so the new row copies every column of the row in force before its date and lays the change over it. Nothing is written if HiBob hides part of the table from the service user, the employee already has a row on that date (existing rows are never edited), or there is no earlier row to copy (a first salary row is an exception: it needs the amount with its currency, the pay period and the pay frequency; a first address row is another: it is just what you give). A later row that still holds a different value comes back as a question; `allow_later_rows: true` goes ahead. A bare salary amount takes its currency from the row it copies, and a change that matches the row it would copy adds nothing. New rows carry HiBob's default change type; a reason is recorded on work, employment and address rows (the salary table has no reason column). Every new row is read back and compared column by column, and anything HiBob dropped is listed under `unconfirmed`. Working patterns cannot be changed yet, and the derived columns (FTE, weekly hours) are copied as they were. Fields HiBob derives (tenure, job architecture fields that follow the job profile, people analytics, lifecycle) are refused as not writable, and `hibob_list_employee_fields` says which. An `effective_date` other than today is refused for plain fields, which HiBob changes immediately. Writes go plain fields, start date, then email, each once; a failure stops the rest (`partial`). HiBob skips fields the service user may not edit without saying so (a live check saw a 200 for a request whose fifth field was not stored), so every change is read back, re-reading for about 10 seconds, and anything still not visible is listed under `unconfirmed`.
 
 `hibob_add_employee_record` adds one row to the tables HiBob keeps several rows in: variable pay, entitlements and deductions (dated: the tool asks for the effective date), equity grants, training, bank accounts, dependents, right-to-work documents, and the company's custom tables. A new record copies nothing, so the columns it needs are asked for, with the options a list offers; a value matching nothing or several things comes back as a question; the type's list, column and date rules are in `hibob_list_employee_fields` under `record_types`. Entitlement and deduction types are sent by name, as HiBob wants. Calling again with the same values adds nothing (the identical record is reported), so a retry after a lost response is safe. Bank account, IBAN, routing and document numbers are sent in full and shown back masked to their last four characters, including in `hibob_get_employee`'s `history`. Every record is read back and compared; a dropped column is listed under `unconfirmed`, and a dropped required column is called out (HiBob stores nothing for a currency it cannot read, such as a made-up code, yet still passes the mandatory check). HiBob's API has no way to edit or delete a record through this server. Bank accounts and right-to-work records need the sensitive-data write permission in HiBob.
+
+## Time off
+
+The time off tools take an employee by ID, work email or name, and requests by HiBob's numeric request ID (`requestId` in `hibob_list_timeoff_requests`).
+
+HiBob uses two vocabularies for a request's state. Who's out lists only live requests, as `approved` or `pending`; reading one request gives `pending_approval`, `approved` or `canceled`. A cancelled request drops out of who's out, so `hibob_get_timeoff_changes` is how to find one. HiBob's API cannot approve or decline a request.
+
+`hibob_cancel_timeoff_request` works around a HiBob behaviour found live: `DELETE /timeoff/employees/{id}/requests/{requestId}` cancels by request ID alone and ignores the employee in the path, so it cancels anyone's request. A `GET` of the same path does check, answering 404 for another employee's request, so the tool reads the request under the employee first and sends nothing unless it is theirs. It then:
+
+- reports a request already `canceled` without sending anything (HiBob would answer 200 and change nothing);
+- refuses any state other than `pending_approval` or `approved`;
+- refuses a request that started before today unless `cancel_started` is true. HiBob would cancel it, past or in progress, pending or approved, but the whole request goes, days already passed included;
+- sends the `DELETE` once and reads the request back to confirm `canceled`. HiBob cancels at once, with no approval step for the cancellation.
+
+`hibob_submit_timeoff_request` books whole and half days (`afternoon` to start at midday, `morning` to finish at midday; the same portion at both ends for a single half day). HiBob checks the request against the policy and its refusals are passed on in full, such as a conflict naming the request it overlaps, a request on non-working days only, or a missing reason code. `skip_manager_approval` approves the request at once. The new request is read back to report its status.
 
 ## Reports
 

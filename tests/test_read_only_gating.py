@@ -27,6 +27,11 @@ READ_TOOLS = {
     "hibob_download_report",
     "hibob_generate_report",
     "hibob_download_generated_report",
+    "hibob_list_timeoff_policy_types",
+    "hibob_list_timeoff_requests",
+    "hibob_get_timeoff_request",
+    "hibob_get_timeoff_balance",
+    "hibob_get_timeoff_changes",
 }
 
 WRITE_TOOLS = {
@@ -43,6 +48,8 @@ WRITE_TOOLS = {
     "hibob_update_employee",
     "hibob_add_employee_record",
     "hibob_terminate_employee",
+    "hibob_submit_timeoff_request",
+    "hibob_cancel_timeoff_request",
 }
 
 DESTRUCTIVE_TOOLS = {
@@ -50,6 +57,7 @@ DESTRUCTIVE_TOOLS = {
     "hibob_schedule_position_cancellation",
     "hibob_delete_position_opening",
     "hibob_terminate_employee",
+    "hibob_cancel_timeoff_request",
 }
 
 

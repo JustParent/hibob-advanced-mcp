@@ -1,4 +1,5 @@
-"""MCP server exposing HiBob workforce planning, tasks and reports.
+"""MCP server exposing HiBob workforce planning, tasks, employees, time off
+and reports.
 
 Runs over stdio. Configuration comes from the environment; see config.py.
 """
@@ -23,6 +24,7 @@ from .config import (
 from .employees import register_employee_tools
 from .reports import register_reports_tools
 from .tasks import register_tasks_tools
+from .timeoff import register_timeoff_tools
 from .workforce_planning import register_workforce_planning_tools
 
 SERVER_NAME = "hibob_advanced_mcp"
@@ -45,6 +47,7 @@ def build_server(
     register_workforce_planning_tools(mcp, read_only=read_only)
     register_tasks_tools(mcp, read_only=read_only)
     register_employee_tools(mcp, read_only=read_only, hide_people_data=hide_people_data)
+    register_timeoff_tools(mcp, read_only=read_only, hide_people_data=hide_people_data)
     register_reports_tools(mcp)
     return mcp
 

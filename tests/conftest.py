@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from datetime import date
 from typing import Any
 
 import httpx
@@ -29,11 +30,14 @@ from hibob_advanced_mcp.config import (
 from hibob_advanced_mcp.employees import register_employee_tools
 from hibob_advanced_mcp.reports import register_reports_tools
 from hibob_advanced_mcp.tasks import register_tasks_tools
+from hibob_advanced_mcp.timeoff import register_timeoff_tools
 from hibob_advanced_mcp.workforce_planning import register_workforce_planning_tools
 
 API_BASE = "https://api.hibob.com/v1"
 TEST_USER_ID = "svc-user-1"
 TEST_TOKEN = "svc-token-1"
+# The day the time off tools take as today.
+TODAY = date(2026, 10, 13)
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +102,14 @@ def server_factory(client: HiBobClient, recorded_sleeps: list[float]):
             client_factory=lambda: client,
             list_cache=list_cache,
             sleep=fake_sleep,
+        )
+        register_timeoff_tools(
+            mcp,
+            read_only=read_only,
+            hide_people_data=hide_people_data,
+            client_factory=lambda: client,
+            list_cache=list_cache,
+            today=lambda: TODAY,
         )
         register_reports_tools(mcp, client_factory=lambda: client)
         return mcp
